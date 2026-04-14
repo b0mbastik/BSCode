@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import deque
 from pathlib import Path
 from typing import Any
 
-from ide.domain.models import Artifact, Operation, PluginMetadata
+from ide.domain.models import Artifact, Operation, PluginMetadata, Revision, SyncStatus
 
 
 class PlatformAbstraction:
@@ -18,6 +19,10 @@ class PlatformAbstraction:
     def application_data_dir(self) -> Path:
         return Path.home() / ".architecture_ide"
 
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
 
 class Persistence(ABC):
     """Storage/versioning boundary; replace with real persistence later."""
@@ -66,19 +71,94 @@ class FilesystemPersistence(Persistence):
         return artifact
 
 
+# ---------------------------------------------------------------------------
+# Revision log  (in-memory version history)
+# ---------------------------------------------------------------------------
+
+class RevisionLog:
+    """Keeps the last N revisions per artefact in memory."""
+
+    MAX_PER_ARTIFACT = 50
+
+    def __init__(self) -> None:
+        self._log: dict[str, deque[Revision]] = {}
+
+    def record(self, revision: Revision) -> None:
+        bucket = self._log.setdefault(revision.artifact_id, deque(maxlen=self.MAX_PER_ARTIFACT))
+        bucket.appendleft(revision)
+
+    def get_history(self, artifact_id: str) -> list[Revision]:
+        """Return revisions newest-first."""
+        return list(self._log.get(artifact_id, []))
+
+    def clear(self, artifact_id: str) -> None:
+        self._log.pop(artifact_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Network sync  (with op queue and sync-status tracking)
+# ---------------------------------------------------------------------------
+
 class NetworkSync:
-    """Remote collaboration transport boundary."""
+    """Remote collaboration transport boundary.
+
+    Operations are enqueued locally and flushed synchronously in this stub.
+    A real implementation would flush asynchronously and update *status*
+    as acknowledgements arrive, enabling UI indicators for queued/conflicting
+    operations.
+    """
+
+    def __init__(self) -> None:
+        self._queue: list[Operation] = []
+        self.status: SyncStatus = SyncStatus.IDLE
+        self.endpoint: str = ""
+        self._status_listeners: list[Any] = []
 
     def connect(self, endpoint: str) -> None:
         self.endpoint = endpoint
 
+    def add_status_listener(self, listener: Any) -> None:
+        """Register a callable(SyncStatus) that is notified on status changes."""
+        self._status_listeners.append(listener)
+
     def send(self, operation: Operation) -> None:
-        # TODO: Serialize and send operation over the selected transport.
-        self.last_sent_operation = operation
+        self._queue.append(operation)
+        self._set_status(SyncStatus.PENDING)
+        # TODO: Replace with real async transport.
+        self._flush()
 
     def broadcast(self, operation: Operation) -> None:
         self.send(operation)
 
+    def simulate_conflict(self) -> None:
+        """Test hook: put the sync layer into CONFLICT state."""
+        self._set_status(SyncStatus.CONFLICT)
+
+    def resolve_conflict(self) -> None:
+        """Test hook: clear the CONFLICT state."""
+        self._set_status(SyncStatus.IDLE)
+
+    # ------------------------------------------------------------------
+    def _flush(self) -> None:
+        """Stub flush: immediately clear the queue and report IDLE."""
+        self._set_status(SyncStatus.SYNCING)
+        self.last_sent_operation = self._queue[-1] if self._queue else None
+        self._queue.clear()
+        self._set_status(SyncStatus.IDLE)
+
+    def _set_status(self, status: SyncStatus) -> None:
+        if self.status != status:
+            self.status = status
+            for listener in self._status_listeners:
+                try:
+                    listener(status)
+                except Exception:
+                    pass
+
+
+# ---------------------------------------------------------------------------
+# Plugin registry
+# ---------------------------------------------------------------------------
 
 class PluginRegistry:
     """Registry for future language, analysis, and tool integrations."""

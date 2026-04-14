@@ -12,6 +12,8 @@ from ide.domain.models import (
     Diagnostic,
     DiagnosticSeverity,
     Project,
+    TestRunResult,
+    TestStatus,
 )
 from ide.services.language import LanguageService, PythonLangSvc
 
@@ -64,12 +66,26 @@ class ConformanceChecker:
 
 
 class DynAnalyser(ABC):
+    """Dynamic analysis boundary — implementations run at test time."""
+
     @abstractmethod
     def analyse_runtime(self, project: Project) -> AnalysisResult:
         raise NotImplementedError
 
+    @abstractmethod
+    def analyse_test_results(self, test_result: TestRunResult) -> AnalysisResult:
+        """Produce dynamic diagnostics from a completed test run."""
+        raise NotImplementedError
+
 
 class StubDynAnalyser(DynAnalyser):
+    """Stub dynamic analyser that connects to the test-execution flow.
+
+    For each failed or errored test case the analyser emits an ERROR
+    diagnostic so that the inline editor highlights are updated
+    immediately after a test run completes.
+    """
+
     def analyse_runtime(self, project: Project) -> AnalysisResult:
         return AnalysisResult(
             diagnostics=[
@@ -81,6 +97,34 @@ class StubDynAnalyser(DynAnalyser):
             ],
             summary=f"Dynamic analysis stub executed for {project.name}.",
         )
+
+    def analyse_test_results(self, test_result: TestRunResult) -> AnalysisResult:
+        diagnostics: list[Diagnostic] = []
+        for suite in test_result.suites:
+            for case in suite.cases:
+                if case.status is TestStatus.FAILED:
+                    diagnostics.append(
+                        Diagnostic(
+                            message=f"Test failed: {case.name} — {case.message or 'assertion error'}",
+                            severity=DiagnosticSeverity.ERROR,
+                            line=case.line or 1,
+                            source="DynAnalyser",
+                        )
+                    )
+                elif case.status is TestStatus.ERROR:
+                    diagnostics.append(
+                        Diagnostic(
+                            message=f"Test error: {case.name} — {case.message or 'unexpected exception'}",
+                            severity=DiagnosticSeverity.ERROR,
+                            line=case.line or 1,
+                            source="DynAnalyser",
+                        )
+                    )
+        summary = (
+            f"Dynamic analysis found {len(diagnostics)} issue(s) from test run "
+            f"({test_result.total_passed} passed, {test_result.total_failed} failed)."
+        )
+        return AnalysisResult(diagnostics=diagnostics, summary=summary)
 
 
 class AnalysisManager:
@@ -141,3 +185,7 @@ class AnalysisManager:
 
     def run_dynamic_analysis(self, project: Project) -> AnalysisResult:
         return self.dyn_analyser.analyse_runtime(project)
+
+    def run_dynamic_analysis_from_tests(self, test_result: TestRunResult) -> AnalysisResult:
+        """Derive dynamic diagnostics from a completed test run."""
+        return self.dyn_analyser.analyse_test_results(test_result)

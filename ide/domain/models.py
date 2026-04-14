@@ -10,6 +10,10 @@ from typing import Any
 from uuid import uuid4
 
 
+# ---------------------------------------------------------------------------
+# Artefact / project core
+# ---------------------------------------------------------------------------
+
 class ArtifactType(str, Enum):
     CODE = "code"
     ARCHITECTURE = "architecture"
@@ -42,6 +46,10 @@ class Project:
     project_id: str = field(default_factory=lambda: str(uuid4()))
 
 
+# ---------------------------------------------------------------------------
+# User / session
+# ---------------------------------------------------------------------------
+
 @dataclass(slots=True)
 class UserSession:
     user_id: str
@@ -54,7 +62,12 @@ class PeerSession:
     peer_id: str
     display_name: str
     active_artifact_id: str | None = None
+    active_artifact_name: str | None = None
 
+
+# ---------------------------------------------------------------------------
+# Editing operations / buffers
+# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Operation:
@@ -75,6 +88,10 @@ class TextBuffer:
         end = max(start, min(start + operation.delete_count, len(self.content)))
         self.content = self.content[:start] + operation.text + self.content[end:]
 
+
+# ---------------------------------------------------------------------------
+# Diagnostics / analysis
+# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Diagnostic:
@@ -100,6 +117,131 @@ class AnalysisResult:
     snapshot: AnalysisSnapshot | None = None
 
 
+# ---------------------------------------------------------------------------
+# Test execution
+# ---------------------------------------------------------------------------
+
+class TestStatus(str, Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
+@dataclass(slots=True)
+class TestCase:
+    name: str
+    status: TestStatus = TestStatus.PASSED
+    duration_ms: float = 0.0
+    message: str = ""
+    artifact_id: str | None = None
+    line: int | None = None
+
+
+@dataclass
+class TestSuite:
+    name: str
+    cases: list[TestCase] = field(default_factory=list)
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for c in self.cases if c.status is TestStatus.PASSED)
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for c in self.cases if c.status is TestStatus.FAILED)
+
+    @property
+    def errors(self) -> int:
+        return sum(1 for c in self.cases if c.status is TestStatus.ERROR)
+
+    @property
+    def skipped(self) -> int:
+        return sum(1 for c in self.cases if c.status is TestStatus.SKIPPED)
+
+
+@dataclass
+class TestRunResult:
+    suites: list[TestSuite] = field(default_factory=list)
+    summary: str = "No tests have been run."
+    success: bool = True
+    command: str = ""
+
+    @property
+    def total_passed(self) -> int:
+        return sum(s.passed for s in self.suites)
+
+    @property
+    def total_failed(self) -> int:
+        return sum(s.failed for s in self.suites)
+
+    @property
+    def total_errors(self) -> int:
+        return sum(s.errors for s in self.suites)
+
+    @property
+    def total_skipped(self) -> int:
+        return sum(s.skipped for s in self.suites)
+
+
+# ---------------------------------------------------------------------------
+# Design-to-implementation traceability
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class TraceLink:
+    link_id: str = field(default_factory=lambda: str(uuid4()))
+    design_artifact_id: str = ""
+    design_element: str = ""
+    code_artifact_id: str = ""
+    code_element: str = ""
+    description: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Comments / annotations
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class Comment:
+    comment_id: str = field(default_factory=lambda: str(uuid4()))
+    artifact_id: str = ""
+    line: int = 1
+    author: str = ""
+    body: str = ""
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# Version history
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class Revision:
+    revision_id: str = field(default_factory=lambda: str(uuid4()))
+    artifact_id: str = ""
+    content: str = ""
+    author: str = ""
+    message: str = "Checkpoint"
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# Collaboration / sync
+# ---------------------------------------------------------------------------
+
+class SyncStatus(str, Enum):
+    IDLE = "idle"
+    PENDING = "pending"
+    SYNCING = "syncing"
+    CONFLICT = "conflict"
+    ERROR = "error"
+
+
+# ---------------------------------------------------------------------------
+# Build / tool execution
+# ---------------------------------------------------------------------------
+
 @dataclass(slots=True)
 class ToolExecutionResult:
     success: bool
@@ -107,6 +249,10 @@ class ToolExecutionResult:
     output: str
     exit_code: int = 0
 
+
+# ---------------------------------------------------------------------------
+# Plugins
+# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class PluginMetadata:

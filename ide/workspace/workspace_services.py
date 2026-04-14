@@ -4,9 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ide.domain.models import Artifact, Operation, PeerSession, Project, UserSession
-from ide.infrastructure.adapters import NetworkSync, Persistence
+from ide.domain.models import (
+    Artifact,
+    Comment,
+    Operation,
+    PeerSession,
+    Project,
+    Revision,
+    UserSession,
+)
+from ide.infrastructure.adapters import NetworkSync, Persistence, RevisionLog
 
+
+# ---------------------------------------------------------------------------
+# Project management
+# ---------------------------------------------------------------------------
 
 class ProjectManager:
     def __init__(self) -> None:
@@ -30,6 +42,10 @@ class ProjectManager:
             project.artifacts.append(artifact.artifact_id)
 
 
+# ---------------------------------------------------------------------------
+# Artefact store
+# ---------------------------------------------------------------------------
+
 class ArtifactStore:
     def __init__(self, persistence: Persistence) -> None:
         self.persistence = persistence
@@ -49,6 +65,10 @@ class ArtifactStore:
         return [artifact for artifact_id in project.artifacts if (artifact := self.load(artifact_id))]
 
 
+# ---------------------------------------------------------------------------
+# Session management
+# ---------------------------------------------------------------------------
+
 class SessionManager:
     def __init__(self) -> None:
         self.current_session: UserSession | None = None
@@ -62,7 +82,18 @@ class SessionManager:
         return self.current_session
 
 
+# ---------------------------------------------------------------------------
+# Collaboration service  (presence + op broadcasting)
+# ---------------------------------------------------------------------------
+
 class CollabService:
+    """Tracks peer presence and broadcasts local operations.
+
+    Presence: each peer advertises the artefact they are currently editing
+    via ``active_artifact_id`` / ``active_artifact_name`` on PeerSession.
+    The local user's current artefact is updated via ``update_local_presence``.
+    """
+
     def __init__(self, network_sync: NetworkSync) -> None:
         self.network_sync = network_sync
         self.peers: list[PeerSession] = [
@@ -72,9 +103,87 @@ class CollabService:
         self.crdt_document: str = ""
 
     def submit_op(self, operation: Operation) -> None:
-        # TODO: Replace whole-document outline logic with a real CRDT.
+        # TODO: Replace whole-document snapshot with a real CRDT algorithm.
         self.crdt_document = operation.text
         self.broadcast(operation)
 
     def broadcast(self, operation: Operation) -> None:
         self.network_sync.broadcast(operation)
+
+    def update_local_presence(
+        self, artifact_id: str | None, artifact_name: str | None
+    ) -> None:
+        """Advertise which artefact the local user is currently editing.
+
+        Simulates peer activity by having the first stub peer mirror the
+        same artefact (in a real system this would come from the network).
+        """
+        if artifact_id and self.peers:
+            self.peers[0].active_artifact_id = artifact_id
+            self.peers[0].active_artifact_name = artifact_name
+
+    def get_peers_editing(self, artifact_id: str) -> list[PeerSession]:
+        """Return stub peers whose presence shows them editing *artifact_id*."""
+        return [p for p in self.peers if p.active_artifact_id == artifact_id]
+
+
+# ---------------------------------------------------------------------------
+# Comment service
+# ---------------------------------------------------------------------------
+
+class CommentService:
+    """Stores and retrieves inline comments/annotations on artefacts."""
+
+    def __init__(self) -> None:
+        self._comments: dict[str, list[Comment]] = {}  # artifact_id → comments
+
+    def add_comment(self, comment: Comment) -> Comment:
+        self._comments.setdefault(comment.artifact_id, []).append(comment)
+        return comment
+
+    def get_comments(self, artifact_id: str) -> list[Comment]:
+        return list(self._comments.get(artifact_id, []))
+
+    def remove_comment(self, comment_id: str) -> bool:
+        for bucket in self._comments.values():
+            for i, c in enumerate(bucket):
+                if c.comment_id == comment_id:
+                    bucket.pop(i)
+                    return True
+        return False
+
+    def all_comments(self) -> list[Comment]:
+        return [c for bucket in self._comments.values() for c in bucket]
+
+
+# ---------------------------------------------------------------------------
+# Version service
+# ---------------------------------------------------------------------------
+
+class VersionService:
+    """Creates explicit revision checkpoints and retrieves version history.
+
+    Checkpoints are created on every explicit Ctrl+S save. Auto-saves on
+    each keystroke do *not* create checkpoints to avoid revision log noise.
+    """
+
+    def __init__(self, revision_log: RevisionLog) -> None:
+        self._log = revision_log
+
+    def checkpoint(
+        self,
+        artifact: Artifact,
+        author: str,
+        message: str = "Manual save",
+    ) -> Revision:
+        revision = Revision(
+            artifact_id=artifact.artifact_id,
+            content=artifact.content,
+            author=author,
+            message=message,
+        )
+        self._log.record(revision)
+        return revision
+
+    def get_history(self, artifact_id: str) -> list[Revision]:
+        return self._log.get_history(artifact_id)

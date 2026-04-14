@@ -6,13 +6,26 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextCursor, QTextFormat
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QPlainTextEdit,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ide.domain.models import Artifact, Diagnostic, DiagnosticSeverity, Operation, TextBuffer, UserSession
 from ide.services.language import LanguageService
 
 
 class EditorView(QWidget):
+    """Code editor widget with inline diagnostic highlights.
+
+    Accessibility: every child widget carries a descriptive
+    ``accessibleName`` and ``toolTip`` so screen readers and keyboard
+    navigation work correctly (WCAG 2.1 AA intent).
+    """
+
     def __init__(
         self,
         artifact: Artifact,
@@ -30,14 +43,33 @@ class EditorView(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.header = QLabel(f"{artifact.name} [{artifact.language or 'plain text'}]")
+
+        lang_label = artifact.language or "plain text"
+        self.header = QLabel(f"{artifact.name} [{lang_label}]")
         self.header.setContentsMargins(8, 4, 8, 4)
+        self.header.setAccessibleName(f"File header: {artifact.name}, language {lang_label}")
+        self.header.setToolTip(
+            f"Artefact: {artifact.name}\n"
+            f"Language: {lang_label}\n"
+            f"Path: {artifact.path or '(in-memory)'}"
+        )
+
         self.editor = QPlainTextEdit()
         self.editor.setTabStopDistance(32)
         self.editor.setPlainText(self.buffer.content)
+        self.editor.setAccessibleName(f"Code editor for {artifact.name}")
+        self.editor.setToolTip(
+            "Code editor — Ctrl+S saves and creates a version checkpoint. "
+            "Edits are broadcast to collaborators automatically."
+        )
         self.editor.textChanged.connect(self._on_text_changed)
+
         layout.addWidget(self.header)
         layout.addWidget(self.editor)
+
+        # Make the editor itself focusable via Tab key.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocusProxy(self.editor)
 
     def apply_op(self, operation: Operation) -> None:
         self.buffer.apply(operation)
@@ -74,9 +106,10 @@ class EditorView(QWidget):
         self.artifact.content = self.buffer.content
         self.on_operation(operation, self.artifact)
 
-    def _diagnostic_colour(self, severity: DiagnosticSeverity) -> QColor:
+    @staticmethod
+    def _diagnostic_colour(severity: DiagnosticSeverity) -> QColor:
         if severity is DiagnosticSeverity.ERROR:
-            return QColor(255, 220, 220)
+            return QColor(255, 220, 220)   # light red — sufficient contrast on white
         if severity is DiagnosticSeverity.WARNING:
-            return QColor(255, 246, 204)
-        return QColor(226, 238, 255)
+            return QColor(255, 246, 204)   # light amber
+        return QColor(226, 238, 255)       # light blue for info

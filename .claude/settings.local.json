@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python -c \"from ide.app.application import IDEApplication; print\\('OK'\\)\")",
-      "Bash(python -c \"from ide.presentation.ide_shell import IDEShell; print\\('OK'\\)\")"
+      "Bash(python -c \"from ide.presentation.ide_shell import IDEShell; print\\('OK'\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(python -c \"from ide.app.application import IDEApplication; from ide.presentation.ide_shell import IDEShell; print\\('OK'\\)\")"
     ]
   }
 }
