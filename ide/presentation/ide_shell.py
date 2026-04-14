@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QInputDialog,
@@ -54,16 +54,28 @@ class IDEShell(QMainWindow):
     def _create_actions(self) -> None:
         self.new_project_action = QAction("New Project", self)
         self.new_project_action.triggered.connect(self.new_project)
-        self.open_project_action = QAction("Open Project", self)
+
+        self.open_project_action = QAction("Open Project…", self)
+        self.open_project_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
         self.open_project_action.triggered.connect(self.open_project)
-        self.save_artifact_action = QAction("Save Artifact", self)
+
+        self.open_file_action = QAction("Open File…", self)
+        self.open_file_action.setShortcut(QKeySequence("Ctrl+O"))
+        self.open_file_action.triggered.connect(self.open_file)
+
+        self.save_artifact_action = QAction("Save", self)
+        self.save_artifact_action.setShortcut(QKeySequence("Ctrl+S"))
         self.save_artifact_action.triggered.connect(self.save_active_artifact)
+
         self.build_action = QAction("Run Build", self)
         self.build_action.triggered.connect(self.run_build)
+
         self.static_analysis_action = QAction("Run Static Analysis", self)
         self.static_analysis_action.triggered.connect(lambda: self._run_static_analysis(add_output=True))
+
         self.commit_action = QAction("Commit", self)
         self.commit_action.triggered.connect(self.commit)
+
         self.about_action = QAction("About", self)
         self.about_action.triggered.connect(self.about)
 
@@ -71,6 +83,8 @@ class IDEShell(QMainWindow):
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(self.new_project_action)
         file_menu.addAction(self.open_project_action)
+        file_menu.addAction(self.open_file_action)
+        file_menu.addSeparator()
         file_menu.addAction(self.save_artifact_action)
         build_menu = self.menuBar().addMenu("Build")
         build_menu.addAction(self.build_action)
@@ -85,6 +99,7 @@ class IDEShell(QMainWindow):
         toolbar = QToolBar("Main")
         toolbar.setMovable(False)
         toolbar.addAction(self.new_project_action)
+        toolbar.addAction(self.open_file_action)
         toolbar.addAction(self.save_artifact_action)
         toolbar.addAction(self.build_action)
         toolbar.addAction(self.static_analysis_action)
@@ -92,13 +107,19 @@ class IDEShell(QMainWindow):
 
     def _create_central_tabs(self) -> None:
         self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.setMovable(True)
         self.diagram_canvas = DiagramCanvas()
         self.tabs.addTab(self.diagram_canvas, "Design")
+        # The Design tab should not be closable.
+        self.tabs.tabBar().setTabButton(0, self.tabs.tabBar().ButtonPosition.RightSide, None)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.tabs.tabCloseRequested.connect(self._on_tab_close_requested)
         self.setCentralWidget(self.tabs)
 
     def _create_docks(self) -> None:
         self.project_tree = QTreeWidget()
-        self.project_tree.setHeaderLabels(["Project Artifacts"])
+        self.project_tree.setHeaderLabels(["Project Explorer"])
         self.project_tree.itemDoubleClicked.connect(self._open_tree_item)
         project_dock = QDockWidget("Project Explorer", self)
         project_dock.setWidget(self.project_tree)
@@ -121,6 +142,10 @@ class IDEShell(QMainWindow):
         bottom_dock.setWidget(self.bottom_tabs)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, bottom_dock)
 
+    # ------------------------------------------------------------------
+    # File / Project actions
+    # ------------------------------------------------------------------
+
     def new_project(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Project", "Project name:")
         if not accepted or not name.strip():
@@ -131,21 +156,41 @@ class IDEShell(QMainWindow):
         self.output_view.appendPlainText(f"Created project: {name.strip()}")
 
     def open_project(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Open Project")
+        path = QFileDialog.getExistingDirectory(self, "Open Project Folder")
         if not path:
             return
         project_name = Path(path).name or "Opened Project"
         self.application.open_project(project_name, Path(path))
         self._clear_code_editors()
         self.refresh_project_explorer()
-        self.output_view.appendPlainText(f"Opened project: {project_name}")
+        self.output_view.appendPlainText(f"Opened project: {project_name} ({path})")
+        self.statusBar().showMessage(f"Project '{project_name}' loaded.")
+
+    def open_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open File",
+            str(self.application.project_manager.active_project.root_path)
+            if self.application.project_manager.active_project else "",
+            "All Files (*.*)",
+        )
+        if not path:
+            return
+        artifact = self.application.open_file(Path(path))
+        if artifact is None:
+            QMessageBox.warning(self, "Cannot Open", f"File type not supported or unreadable:\n{path}")
+            return
+        self.refresh_project_explorer()
+        self.open_artifact(artifact)
 
     def save_active_artifact(self) -> None:
         if self.active_editor is None:
-            self.statusBar().showMessage("No active editor artifact to save.")
+            self.statusBar().showMessage("No active editor to save.")
             return
         self.application.artifact_store.save(self.active_editor.artifact)
-        self.statusBar().showMessage(f"Saved {self.active_editor.artifact.name}.")
+        artifact = self.active_editor.artifact
+        label = str(artifact.path) if artifact.path else artifact.name
+        self.statusBar().showMessage(f"Saved {label}.")
 
     def run_build(self) -> None:
         project = self.application.project_manager.active_project
@@ -171,19 +216,70 @@ class IDEShell(QMainWindow):
             "Desktop shell prototype with Python language support only.",
         )
 
+    # ------------------------------------------------------------------
+    # Project explorer
+    # ------------------------------------------------------------------
+
     def refresh_project_explorer(self) -> None:
         self.project_tree.clear()
         project = self.application.project_manager.active_project
         if project is None:
             return
-        root = QTreeWidgetItem([project.name])
-        self.project_tree.addTopLevelItem(root)
-        for artifact in self.application.artifact_store.list_for_project(project):
-            item = QTreeWidgetItem([f"{artifact.name} ({artifact.artifact_type.value})"])
-            item.setData(0, Qt.ItemDataRole.UserRole, artifact.artifact_id)
-            root.addChild(item)
-        root.setExpanded(True)
-        self._open_first_code_artifact(project.artifacts)
+
+        root_item = QTreeWidgetItem([project.name])
+        self.project_tree.addTopLevelItem(root_item)
+
+        artifacts = self.application.artifact_store.list_for_project(project)
+        dir_items: dict[str, QTreeWidgetItem] = {}
+
+        for artifact in artifacts:
+            # Determine path parts relative to project root for tree grouping.
+            if artifact.path is not None:
+                try:
+                    rel = artifact.path.relative_to(project.root_path)
+                    parts = rel.parts
+                except ValueError:
+                    parts = (artifact.name,)
+            else:
+                parts = (artifact.name,)
+
+            # Build intermediate directory nodes.
+            parent = root_item
+            for depth, part in enumerate(parts[:-1]):
+                dir_key = "/".join(parts[: depth + 1])
+                if dir_key not in dir_items:
+                    dir_node = QTreeWidgetItem([part])
+                    parent.addChild(dir_node)
+                    dir_items[dir_key] = dir_node
+                parent = dir_items[dir_key]
+
+            # Add the file leaf node.
+            file_item = QTreeWidgetItem([parts[-1]])
+            file_item.setData(0, Qt.ItemDataRole.UserRole, artifact.artifact_id)
+            parent.addChild(file_item)
+
+        root_item.setExpanded(True)
+
+    # ------------------------------------------------------------------
+    # Tab and editor management
+    # ------------------------------------------------------------------
+
+    def _on_tab_changed(self, index: int) -> None:
+        widget = self.tabs.widget(index)
+        if isinstance(widget, EditorView):
+            self.active_editor = widget
+        else:
+            self.active_editor = None
+
+    def _on_tab_close_requested(self, index: int) -> None:
+        widget = self.tabs.widget(index)
+        if isinstance(widget, DiagramCanvas):
+            return  # Design tab is not closable.
+        self.tabs.removeTab(index)
+        if isinstance(widget, EditorView):
+            if self.active_editor is widget:
+                self.active_editor = None
+            widget.deleteLater()
 
     def _open_tree_item(self, item: QTreeWidgetItem) -> None:
         artifact_id = item.data(0, Qt.ItemDataRole.UserRole)
@@ -193,18 +289,25 @@ class IDEShell(QMainWindow):
                 self.open_artifact(artifact)
 
     def open_artifact(self, artifact: Artifact) -> None:
-        if artifact.artifact_type is not ArtifactType.CODE:
-            self.diagram_canvas.editor.setPlainText(artifact.content)
-            self.tabs.setCurrentWidget(self.diagram_canvas)
-            self.statusBar().showMessage(f"Loaded {artifact.name} in design canvas.")
+        # Switch to an already-open tab rather than creating a duplicate.
+        existing = self._find_editor_tab(artifact.artifact_id)
+        if existing is not None:
+            self.tabs.setCurrentWidget(existing)
+            self.active_editor = existing
             return
-        language_service = self.application.language_services.get(artifact.language or "python")
+
+        language_service = self.application.language_services.get(artifact.language or "plain")
         if language_service is None:
-            QMessageBox.warning(self, "Missing Language Service", f"No language service for {artifact.language}.")
+            # Fall back to plain text service.
+            language_service = self.application.language_services.get("plain")
+        if language_service is None:
+            QMessageBox.warning(self, "Missing Language Service", f"No language service for '{artifact.language}'.")
             return
+
         session = self.application.session_manager.current_session
         if session is None:
             session = self.application.session_manager.sign_in_guest()
+
         editor = EditorView(
             artifact=artifact,
             language_service=language_service,
@@ -217,11 +320,22 @@ class IDEShell(QMainWindow):
         if self._last_diagnostics:
             editor.render_diagnostics(self._last_diagnostics)
 
+    def _find_editor_tab(self, artifact_id: str) -> EditorView | None:
+        for i in range(self.tabs.count()):
+            widget = self.tabs.widget(i)
+            if isinstance(widget, EditorView) and widget.artifact.artifact_id == artifact_id:
+                return widget
+        return None
+
     def _handle_editor_operation(self, operation: Operation, artifact: Artifact) -> None:
         self.application.collab_service.submit_op(operation)
         self.application.artifact_store.save(artifact)
         self.collab_ui.log_event(f"Local edit broadcast for {artifact.name}")
         self.analysis_timer.start(400)
+
+    # ------------------------------------------------------------------
+    # Analysis and diagnostics
+    # ------------------------------------------------------------------
 
     def _run_static_analysis(self, add_output: bool) -> None:
         project = self.application.project_manager.active_project
@@ -253,14 +367,9 @@ class IDEShell(QMainWindow):
                 )
             )
 
-    def _open_first_code_artifact(self, artifact_ids: list[str]) -> None:
-        if self.active_editor is not None:
-            return
-        for artifact_id in artifact_ids:
-            artifact = self.application.artifact_store.load(artifact_id)
-            if artifact is not None and artifact.artifact_type is ArtifactType.CODE:
-                self.open_artifact(artifact)
-                return
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
     def _clear_code_editors(self) -> None:
         for index in reversed(range(self.tabs.count())):

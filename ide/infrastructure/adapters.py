@@ -42,6 +42,30 @@ class InMemoryPersistence(Persistence):
         return self._artifacts.get(artifact_id)
 
 
+class FilesystemPersistence(Persistence):
+    """Persistence that reads and writes artifacts to real files on disk."""
+
+    def __init__(self) -> None:
+        self._cache: dict[str, Artifact] = {}
+
+    def save_artifact(self, artifact: Artifact) -> None:
+        self._cache[artifact.artifact_id] = artifact
+        if artifact.path is not None:
+            try:
+                artifact.path.write_text(artifact.content, encoding="utf-8")
+            except OSError:
+                pass  # silently ignore write failures (read-only FS, missing dir, etc.)
+
+    def load_artifact(self, artifact_id: str) -> Artifact | None:
+        artifact = self._cache.get(artifact_id)
+        if artifact is not None and artifact.path is not None and artifact.path.exists():
+            try:
+                artifact.content = artifact.path.read_text(encoding="utf-8")
+            except OSError:
+                pass
+        return artifact
+
+
 class NetworkSync:
     """Remote collaboration transport boundary."""
 

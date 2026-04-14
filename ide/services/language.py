@@ -72,3 +72,19 @@ class PythonLangSvc:
                     )
                 )
         return diagnostics
+
+
+class PlainTextLangSvc:
+    """Generic language service for plain text and unsupported file types."""
+
+    def complete(self, source: str, line: int, column: int) -> list[str]:
+        return []
+
+    def highlight(self, source: str) -> list[tuple[int, int, str]]:
+        return []
+
+    def parse(self, source: str, artifact_id: str) -> AnalysisSnapshot:
+        return AnalysisSnapshot(
+            artifact_id=artifact_id,
+            code_metadata={"language": "plain", "line_count": len(source.splitlines())},
+        )
