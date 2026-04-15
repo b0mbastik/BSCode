@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import ast
 from typing import Protocol
 
 from ide.domain.models import AnalysisSnapshot, Diagnostic, DiagnosticSeverity
@@ -36,8 +37,32 @@ class PythonLangSvc:
 
     def parse(self, source: str, artifact_id: str) -> AnalysisSnapshot:
         lines = source.splitlines()
-        functions = [line.strip()[4:].split("(", 1)[0] for line in lines if line.strip().startswith("def ")]
-        classes = [line.strip()[6:].split("(", 1)[0].rstrip(":") for line in lines if line.strip().startswith("class ")]
+        functions: list[str] = []
+        classes: list[str] = []
+        methods: list[str] = []
+        class_methods: dict[str, list[str]] = {}
+        bases: dict[str, list[str]] = {}
+        try:
+            tree = ast.parse(source)
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef):
+                    functions.append(node.name)
+                elif isinstance(node, ast.ClassDef):
+                    classes.append(node.name)
+                    bases[node.name] = [
+                        self._base_name(base)
+                        for base in node.bases
+                        if self._base_name(base)
+                    ]
+                    class_methods[node.name] = [
+                        child.name
+                        for child in node.body
+                        if isinstance(child, ast.FunctionDef)
+                    ]
+                    methods.extend(class_methods[node.name])
+        except SyntaxError:
+            functions = [line.strip()[4:].split("(", 1)[0] for line in lines if line.strip().startswith("def ")]
+            classes = [line.strip()[6:].split("(", 1)[0].rstrip(":") for line in lines if line.strip().startswith("class ")]
         todos = [index + 1 for index, line in enumerate(lines) if "TODO" in line]
         return AnalysisSnapshot(
             artifact_id=artifact_id,
@@ -46,6 +71,9 @@ class PythonLangSvc:
                 "line_count": len(lines),
                 "functions": functions,
                 "classes": classes,
+                "methods": methods,
+                "class_methods": class_methods,
+                "bases": bases,
                 "todos": todos,
             },
         )
@@ -73,6 +101,14 @@ class PythonLangSvc:
                 )
         return diagnostics
 
+    @staticmethod
+    def _base_name(node: ast.expr) -> str:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return ""
+
 
 class JavaLangSvc:
     """Minimal Java language service for outline-level IDE support.
@@ -87,6 +123,11 @@ class JavaLangSvc:
         "void", "return", "new", "extends", "implements",
     }
     _type_re = re.compile(r"\b(class|interface)\s+([A-Za-z_][A-Za-z0-9_]*)")
+    _inheritance_re = re.compile(
+        r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)"
+        r"(?:\s+extends\s+([A-Za-z_][A-Za-z0-9_]*))?"
+        r"(?:\s+implements\s+([A-Za-z_][A-Za-z0-9_,\s]*))?"
+    )
     _method_re = re.compile(
         r"\b(?:public|private|protected)?\s*"
         r"(?:static\s+)?"
@@ -109,11 +150,21 @@ class JavaLangSvc:
         type_matches = list(self._type_re.finditer(source))
         classes = [m.group(2) for m in type_matches if m.group(1) == "class"]
         interfaces = [m.group(2) for m in type_matches if m.group(1) == "interface"]
+        bases: dict[str, list[str]] = {}
+        for match in self._inheritance_re.finditer(source):
+            class_name = match.group(1)
+            parents: list[str] = []
+            if match.group(2):
+                parents.append(match.group(2))
+            if match.group(3):
+                parents.extend(p.strip() for p in match.group(3).split(",") if p.strip())
+            bases[class_name] = parents
         methods = [
             name
             for name in self._method_re.findall(source)
             if name not in {"if", "for", "while", "switch", "catch"}
         ]
+        class_methods = {class_name: methods for class_name in classes}
         todos = [index + 1 for index, line in enumerate(lines) if "TODO" in line]
         return AnalysisSnapshot(
             artifact_id=artifact_id,
@@ -123,6 +174,8 @@ class JavaLangSvc:
                 "classes": classes,
                 "interfaces": interfaces,
                 "methods": methods,
+                "class_methods": class_methods,
+                "bases": bases,
                 "todos": todos,
             },
         )

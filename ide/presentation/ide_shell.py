@@ -39,6 +39,7 @@ from ide.domain.models import (
     ArtifactType,
     Comment,
     Diagnostic,
+    DebugSnapshot,
     Operation,
     SyncStatus,
     TraceLink,
@@ -142,11 +143,14 @@ class IDEShell(QMainWindow):
         self.analysis_timer.setSingleShot(True)
         self.analysis_timer.timeout.connect(lambda: self._run_static_analysis(add_output=False))
 
+        self.debug_timer = QTimer(self)
+        self.debug_timer.timeout.connect(self._poll_debugger)
 
         self._build_ui()
 
         # Sync status from the network layer.
         self.application.network_sync.add_status_listener(self._on_sync_status_changed)
+        self.debug_timer.start(150)
 
         self.statusBar().showMessage("Desktop IDE shell ready.  Press F1 for help.")
         self._refresh_project_selector()
@@ -225,6 +229,25 @@ class IDEShell(QMainWindow):
         self.build_action.setToolTip("Invoke the build service for the active project")
         self.build_action.triggered.connect(self.run_build)
 
+        self.debug_start_action = QAction("Start Debugging", self)
+        self.debug_start_action.setShortcut(QKeySequence("F9"))
+        self.debug_start_action.setToolTip("Start Python debugger for the active file (F9)")
+        self.debug_start_action.triggered.connect(self.start_debugging)
+
+        self.debug_step_action = QAction("Step", self)
+        self.debug_step_action.setShortcut(QKeySequence("F10"))
+        self.debug_step_action.setToolTip("Step to the next debugger line (F10)")
+        self.debug_step_action.triggered.connect(self.debug_step)
+
+        self.debug_continue_action = QAction("Continue", self)
+        self.debug_continue_action.setShortcut(QKeySequence("F11"))
+        self.debug_continue_action.setToolTip("Continue debugger execution (F11)")
+        self.debug_continue_action.triggered.connect(self.debug_continue)
+
+        self.debug_stop_action = QAction("Stop Debugging", self)
+        self.debug_stop_action.setToolTip("Stop the active debug session")
+        self.debug_stop_action.triggered.connect(self.debug_stop)
+
         # Analyse
         self.static_analysis_action = QAction("Run Static Analysis", self)
         self.static_analysis_action.setShortcut(QKeySequence("Ctrl+Shift+A"))
@@ -233,10 +256,29 @@ class IDEShell(QMainWindow):
             lambda: self._run_static_analysis(add_output=True)
         )
 
+        self.generate_class_diagram_action = QAction("Generate Class Diagram from Code", self)
+        self.generate_class_diagram_action.setToolTip("Generate Mermaid class diagram text from parsed project code")
+        self.generate_class_diagram_action.triggered.connect(self.generate_class_diagram_from_code)
+
         # VCS
+        self.git_status_action = QAction("Status", self)
+        self.git_status_action.triggered.connect(self.git_status)
+
+        self.git_diff_action = QAction("Diff", self)
+        self.git_diff_action.triggered.connect(self.git_diff)
+
+        self.git_log_action = QAction("Log", self)
+        self.git_log_action.triggered.connect(self.git_log)
+
+        self.git_branches_action = QAction("Branches", self)
+        self.git_branches_action.triggered.connect(self.git_branches)
+
         self.commit_action = QAction("Commit", self)
         self.commit_action.setToolTip("Commit current changes via the VCS service")
         self.commit_action.triggered.connect(self.commit)
+
+        self.git_merge_action = QAction("Merge Branch…", self)
+        self.git_merge_action.triggered.connect(self.git_merge)
 
         # Help
         self.help_topics_action = QAction("Help Topics…", self)
@@ -274,14 +316,26 @@ class IDEShell(QMainWindow):
         run_menu.addSeparator()
         run_menu.addAction(self.run_tests_action)
         run_menu.addAction(self.build_action)
+        run_menu.addSeparator()
+        run_menu.addAction(self.debug_start_action)
+        run_menu.addAction(self.debug_step_action)
+        run_menu.addAction(self.debug_continue_action)
+        run_menu.addAction(self.debug_stop_action)
 
         analyse_menu = self.menuBar().addMenu("&Analyse")
         analyse_menu.setAccessibleName("Analyse menu")
         analyse_menu.addAction(self.static_analysis_action)
+        analyse_menu.addAction(self.generate_class_diagram_action)
 
         vcs_menu = self.menuBar().addMenu("&VCS")
         vcs_menu.setAccessibleName("VCS menu")
+        vcs_menu.addAction(self.git_status_action)
+        vcs_menu.addAction(self.git_diff_action)
+        vcs_menu.addAction(self.git_log_action)
+        vcs_menu.addAction(self.git_branches_action)
+        vcs_menu.addSeparator()
         vcs_menu.addAction(self.commit_action)
+        vcs_menu.addAction(self.git_merge_action)
 
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.setAccessibleName("Help menu")
@@ -301,7 +355,12 @@ class IDEShell(QMainWindow):
         toolbar.addAction(self.run_file_action)
         toolbar.addAction(self.run_tests_action)
         toolbar.addAction(self.build_action)
+        toolbar.addAction(self.debug_start_action)
+        toolbar.addAction(self.debug_step_action)
+        toolbar.addAction(self.debug_continue_action)
+        toolbar.addAction(self.debug_stop_action)
         toolbar.addAction(self.static_analysis_action)
+        toolbar.addAction(self.generate_class_diagram_action)
         toolbar.addAction(self.complete_action)
         toolbar.addSeparator()
 
@@ -447,6 +506,46 @@ class IDEShell(QMainWindow):
         self.output_view.setToolTip("Build, VCS, and other tool output.")
         self.bottom_tabs.addTab(self.output_view, "Output")
 
+        # Debugger
+        debug_widget = QWidget()
+        debug_layout = QVBoxLayout(debug_widget)
+        debug_layout.setContentsMargins(4, 4, 4, 4)
+        debug_controls = QWidget()
+        debug_controls_layout = QHBoxLayout(debug_controls)
+        debug_controls_layout.setContentsMargins(0, 0, 0, 0)
+        debug_controls_layout.addWidget(QLabel("Breakpoints:"))
+        self.breakpoint_field = QLineEdit()
+        self.breakpoint_field.setPlaceholderText("e.g. 3, 8, 14")
+        self.breakpoint_field.setAccessibleName("Debugger breakpoint line input")
+        self.breakpoint_field.setToolTip("Comma-separated line numbers for the active Python file.")
+        debug_controls_layout.addWidget(self.breakpoint_field)
+        for action in (
+            self.debug_start_action,
+            self.debug_step_action,
+            self.debug_continue_action,
+            self.debug_stop_action,
+        ):
+            btn = QPushButton(action.text())
+            btn.setDefaultAction(action)
+            debug_controls_layout.addWidget(btn)
+        debug_layout.addWidget(debug_controls)
+
+        self.debug_stack_tree = QTreeWidget()
+        self.debug_stack_tree.setHeaderLabels(["Function", "Line", "File"])
+        self.debug_stack_tree.setAccessibleName("Debugger stack view")
+        debug_layout.addWidget(self.debug_stack_tree)
+
+        self.debug_variables_tree = QTreeWidget()
+        self.debug_variables_tree.setHeaderLabels(["Variable", "Value"])
+        self.debug_variables_tree.setAccessibleName("Debugger variables view")
+        debug_layout.addWidget(self.debug_variables_tree)
+
+        self.debug_output_view = QPlainTextEdit()
+        self.debug_output_view.setReadOnly(True)
+        self.debug_output_view.setAccessibleName("Debugger output view")
+        debug_layout.addWidget(self.debug_output_view)
+        self.bottom_tabs.addTab(debug_widget, "Debugger")
+
         bottom_dock = QDockWidget("Diagnostics / Output", self)
         bottom_dock.setAccessibleName("Bottom panel dock")
         bottom_dock.setWidget(self.bottom_tabs)
@@ -539,13 +638,129 @@ class IDEShell(QMainWindow):
         self.output_view.appendPlainText(f"$ {result.command}\n{result.output}")
         self.statusBar().showMessage("Build stub completed.")
 
+    # ------------------------------------------------------------------
+    # Debugger
+    # ------------------------------------------------------------------
+
+    def start_debugging(self) -> None:
+        if self.active_editor is None or self.active_editor.artifact.path is None:
+            self.statusBar().showMessage("Open a Python file before debugging.")
+            return
+        artifact = self.active_editor.artifact
+        if artifact.path.suffix.lower() != ".py":
+            self.statusBar().showMessage("Debugger currently supports Python files only.")
+            return
+        project = self.application.project_manager.active_project
+        if project is None:
+            return
+        self.application.artifact_store.save(artifact)
+        breakpoints = self._parse_breakpoints()
+        result = self.application.debug_service.start_debug_session(
+            project,
+            artifact.path,
+            breakpoints,
+        )
+        self.debug_output_view.appendPlainText(f"$ {result.command}\n{result.output}")
+        self.bottom_tabs.setCurrentIndex(self.bottom_tabs.indexOf(self.debug_output_view.parentWidget()))
+        self.statusBar().showMessage(result.output)
+
+    def debug_step(self) -> None:
+        self.application.debug_service.step()
+
+    def debug_continue(self) -> None:
+        self.application.debug_service.continue_execution()
+
+    def debug_stop(self) -> None:
+        self.application.debug_service.stop()
+
+    def _poll_debugger(self) -> None:
+        for snapshot in self.application.debug_service.poll_events():
+            self._render_debug_snapshot(snapshot)
+
+    def _render_debug_snapshot(self, snapshot: DebugSnapshot) -> None:
+        self.debug_stack_tree.clear()
+        for frame in snapshot.stack:
+            self.debug_stack_tree.addTopLevelItem(
+                QTreeWidgetItem([frame.function, str(frame.line), frame.file])
+            )
+        self.debug_variables_tree.clear()
+        for name, value in sorted(snapshot.variables.items()):
+            self.debug_variables_tree.addTopLevelItem(QTreeWidgetItem([name, value]))
+        self.debug_output_view.setPlainText(snapshot.output)
+        if snapshot.message:
+            self.debug_output_view.appendPlainText(snapshot.message)
+        if snapshot.file and snapshot.line:
+            self.statusBar().showMessage(
+                f"Debugger {snapshot.status}: {Path(snapshot.file).name}:{snapshot.line}"
+            )
+        else:
+            self.statusBar().showMessage(f"Debugger {snapshot.status}: {snapshot.message}")
+        self.bottom_tabs.setCurrentIndex(self.bottom_tabs.indexOf(self.debug_output_view.parentWidget()))
+
+    def _parse_breakpoints(self) -> set[int]:
+        breakpoints: set[int] = set()
+        for raw in self.breakpoint_field.text().replace(";", ",").split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                line = int(raw)
+            except ValueError:
+                continue
+            if line > 0:
+                breakpoints.add(line)
+        return breakpoints
+
+    # ------------------------------------------------------------------
+    # VCS
+    # ------------------------------------------------------------------
+
+    def git_status(self) -> None:
+        self._run_vcs_command("status")
+
+    def git_diff(self) -> None:
+        self._run_vcs_command("diff")
+
+    def git_log(self) -> None:
+        self._run_vcs_command("log")
+
+    def git_branches(self) -> None:
+        self._run_vcs_command("branches")
+
     def commit(self) -> None:
         project = self.application.project_manager.active_project
         if project is None:
             return
-        result = self.application.vcs_service.commit(project, "Prototype checkpoint")
+        message, accepted = QInputDialog.getText(self, "Git Commit", "Commit message:")
+        if not accepted or not message.strip():
+            return
+        result = self.application.vcs_service.commit(project, message.strip())
+        self._show_tool_result(result, "Git commit")
+
+    def git_merge(self) -> None:
+        project = self.application.project_manager.active_project
+        if project is None:
+            return
+        branch, accepted = QInputDialog.getText(self, "Git Merge", "Branch to merge:")
+        if not accepted or not branch.strip():
+            return
+        result = self.application.vcs_service.merge(project, branch.strip())
+        self._show_tool_result(result, "Git merge")
+
+    def _run_vcs_command(self, command: str) -> None:
+        project = self.application.project_manager.active_project
+        if project is None:
+            return
+        service = self.application.vcs_service
+        result = getattr(service, command)(project)
+        self._show_tool_result(result, f"Git {command}")
+
+    def _show_tool_result(self, result, label: str) -> None:
+        self.output_view.appendPlainText(f"\n{'─' * 60}")
         self.output_view.appendPlainText(f"$ {result.command}\n{result.output}")
-        self.statusBar().showMessage("VCS commit stub completed.")
+        self.bottom_tabs.setCurrentWidget(self.output_view)
+        status = "completed" if result.success else f"failed ({result.exit_code})"
+        self.statusBar().showMessage(f"{label} {status}.")
 
     def about(self) -> None:
         QMessageBox.about(
@@ -1165,6 +1380,70 @@ class IDEShell(QMainWindow):
         if add_output:
             self.output_view.appendPlainText(f"{result.summary}\n{conformance.summary}")
         self.statusBar().showMessage(f"Analysis: {len(diagnostics)} diagnostic(s).")
+
+    def generate_class_diagram_from_code(self) -> None:
+        project = self.application.project_manager.active_project
+        if project is None:
+            return
+        artifacts = self.application.artifact_store.list_for_project(project)
+        diagram_lines = ["classDiagram"]
+        relationships: list[str] = []
+        generated = 0
+
+        for artifact in artifacts:
+            if artifact.artifact_type is not ArtifactType.CODE:
+                continue
+            language_service = self.application.language_services.get(artifact.language or "plain")
+            if language_service is None:
+                continue
+            snapshot = language_service.parse(artifact.content, artifact.artifact_id)
+            metadata = snapshot.code_metadata
+            class_methods = metadata.get("class_methods", {})
+            for class_name in metadata.get("classes", []):
+                safe_class = self._mermaid_identifier(class_name)
+                diagram_lines.append(f"    class {safe_class} {{")
+                for method in class_methods.get(class_name, metadata.get("methods", [])):
+                    diagram_lines.append(f"        +{self._mermaid_identifier(method)}()")
+                diagram_lines.append("    }")
+                generated += 1
+            for interface_name in metadata.get("interfaces", []):
+                safe_interface = self._mermaid_identifier(interface_name)
+                diagram_lines.append(f"    class {safe_interface} {{")
+                diagram_lines.append("        <<interface>>")
+                diagram_lines.append("    }")
+                generated += 1
+            functions = metadata.get("functions", [])
+            if functions:
+                module_name = self._mermaid_identifier(Path(artifact.name).stem.title() + "Module")
+                diagram_lines.append(f"    class {module_name} {{")
+                for function in functions:
+                    diagram_lines.append(f"        +{self._mermaid_identifier(function)}()")
+                diagram_lines.append("    }")
+                generated += 1
+
+            bases = metadata.get("bases", {})
+            for child, parents in bases.items():
+                for parent in parents:
+                    relationships.append(
+                        f"    {self._mermaid_identifier(parent)} <|-- {self._mermaid_identifier(child)}"
+                    )
+
+        if relationships:
+            diagram_lines.extend(sorted(set(relationships)))
+        if generated == 0:
+            diagram_lines.append("    class NoCodeElementsFound")
+
+        content = "\n".join(diagram_lines) + "\n"
+        self.diagram_canvas.set_content("UML Class", content)
+        self.diagram_canvas.set_current_diagram("UML Class")
+        self.tabs.setCurrentWidget(self.diagram_canvas)
+        self.application.save_diagram("UML Class", content)
+        self.statusBar().showMessage(f"Generated class diagram from {generated} code element(s).")
+
+    @staticmethod
+    def _mermaid_identifier(name: str) -> str:
+        cleaned = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name.strip())
+        return cleaned or "Unnamed"
 
     def _render_diagnostics(self, diagnostics: list[Diagnostic]) -> None:
         self.diagnostics_tree.clear()

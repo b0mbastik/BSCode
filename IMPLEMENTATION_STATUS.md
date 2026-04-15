@@ -17,10 +17,13 @@ This file uses only two categories:
 | Storage/retrieval of development artefacts | Code files, design diagrams, comments, traceability links, and revision checkpoints persist through files or `.bscode` sidecars. |
 | File explorer | Project explorer scans project files and opens artefacts. |
 | Compiler/interpreter integration | Python files run through the active interpreter; Java files compile/run through local `javac`/`java` when a JDK is installed. |
+| Debugger integration | Active Python files can be debugged with breakpoints, step, continue, stop, stack view, variables view, and captured output. |
 | Static code analysis | Python/Java metadata extraction and diagnostics run through `AnalysisManager`; conformance checks compare declared architecture elements with parsed code elements. |
 | Multiple concurrent projects | Multiple projects can be opened in one session and switched through the project selector. |
 | Testing framework integration | On-disk Python projects run with `unittest discover`; in-memory prototype artefacts use deterministic fallback classification. |
+| Version control systems | Git status, diff, log, branch listing, commit, and merge run through `VCSService` against the active project root. |
 | Incremental architecture/design specification | Design canvas and Mermaid source files provide editable component, layered, deployment, class, and sequence views. |
+| Generate diagrams from code | The IDE can generate Mermaid class diagram text from parsed Python/Java project code into the UML Class design tab. |
 | Static/dynamic analysis workflow | Static diagnostics and conformance checks run after edits; test results feed the dynamic-analysis hook. |
 | Accessible UI basics | Main widgets/actions include accessible names, labels, tooltips, and keyboard shortcuts. |
 | Heterogeneous platform baseline | Python/PySide6 implementation, path abstraction, and no platform-specific required dependency beyond optional local tools. |
@@ -31,9 +34,7 @@ This file uses only two categories:
 
 | Brief item | Current boundary |
 | --- | --- |
-| Debugger integration | `DebugService` defines the boundary, but no debugger process/UI is implemented. |
 | Build automation tools | `BuildService` defines the boundary; Maven/Gradle/project build orchestration is future work. |
-| Version control systems | `VCSService` defines the boundary; real Git status/diff/commit is future work. |
 | Distributed collaboration | `CollabService`, `NetworkSync`, presence UI, and sync status exist; real server/peer networking is future work. |
 | Conflict-free concurrent editing | Operation broadcasting seam exists; CRDT/OT and conflict resolution are future work. |
 | Production static/dynamic analysis | Prototype diagnostics exist; industrial parsers, profilers, and architecture rule engines are future work. |

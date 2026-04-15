@@ -7,7 +7,8 @@
 - [x] PySide6 desktop shell entry point included: `main.py`.
 - [x] Python language service included: `PythonLangSvc`.
 - [x] Java outline language service included: `JavaLangSvc`.
-- [x] Test, search, help, traceability, comments, revision history, collaboration presence, build, debug, VCS, persistence, network, and plugin seams represented.
+- [x] Test, search, help, traceability, comments, revision history, collaboration presence, debug, VCS, persistence, network, and plugin seams represented.
+- [x] Python debugger controls and Git VCS operations implemented at prototype scope.
 - [x] Implementation limitations are explicit and do not claim production completeness.
 
 ## Design Artefacts

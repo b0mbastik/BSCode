@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import time
 from pathlib import Path
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
 from ide.domain.models import Artifact, ArtifactType, Comment, Operation, Revision, TestStatus, TraceLink
 from ide.infrastructure.adapters import InMemoryPersistence, RevisionLog
 from ide.infrastructure.bscode_store import BSCodeStore
-from ide.services.integrations import RunService
+from ide.services.integrations import DebugService, RunService, VCSService
 from ide.services.language import JavaLangSvc, PythonLangSvc
 from ide.services.testing import TestService
 from ide.workspace.traceability import TraceabilityService
@@ -168,6 +169,44 @@ class AnalysisAndTestingTests(unittest.TestCase):
         source = "package edu.demo;\npublic class Main {}\n"
 
         self.assertEqual(RunService._java_package(source), "edu.demo")
+
+    def test_debug_service_starts_and_stops_python_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "debug_me.py"
+            script.write_text("x = 1\ny = x + 1\nprint(y)\n", encoding="utf-8")
+            project = ProjectManager().create_project("Debug", root)
+            service = DebugService()
+
+            result = service.start_debug_session(project, script, {1})
+            snapshots = self._wait_for_debug_events(service)
+            service.stop()
+            snapshots.extend(self._wait_for_debug_events(service))
+
+            self.assertTrue(result.success)
+            self.assertTrue(any(snapshot.status == "paused" for snapshot in snapshots))
+
+    def test_vcs_service_runs_git_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            __import__("subprocess").run(["git", "init"], cwd=root, check=True, capture_output=True)
+            project = ProjectManager().create_project("Git", root)
+
+            result = VCSService().status(project)
+
+            self.assertTrue(result.success)
+            self.assertIn("git status", result.command)
+
+    @staticmethod
+    def _wait_for_debug_events(service: DebugService) -> list:
+        deadline = time.time() + 2
+        events = []
+        while time.time() < deadline:
+            events.extend(service.poll_events())
+            if events:
+                return events
+            time.sleep(0.02)
+        return events
 
 
 class TraceabilityAndRevisionTests(unittest.TestCase):

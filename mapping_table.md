@@ -16,16 +16,16 @@
 | Core IDE Services | LanguageService | `ide.services.language.LanguageService` | Protocol for pluggable language support. |
 | Core IDE Services | PythonLangSvc | `ide.services.language.PythonLangSvc` | Concrete outline language service for Python. |
 | Core IDE Services | JavaLangSvc | `ide.services.language.JavaLangSvc` | Java language service for file recognition, metadata extraction, completion and highlighting. |
-| Core IDE Services | BuildService | `ide.services.integrations.BuildService` | Stub for external interpreter/build tool integration. |
-| Core IDE Services | DebugService | `ide.services.integrations.DebugService` | Stub for debugger integration. |
-| Core IDE Services | VCSService | `ide.services.integrations.VCSService` | Stub Git integration. |
+| Core IDE Services | BuildService | `ide.services.integrations.BuildService` | Boundary for project build automation. |
+| Core IDE Services | DebugService | `ide.services.integrations.DebugService` | Runs Python debugger sessions with breakpoints, stepping, stack frames, variables, and output capture. |
+| Core IDE Services | VCSService | `ide.services.integrations.VCSService` | Runs Git status, diff, log, branch, commit, and merge operations in the active project. |
 | Core IDE Services | RunService | `ide.services.integrations.RunService` | Runs Python files and compiles/runs Java files through local toolchains. |
 | Core IDE Services | TestService | `ide.services.testing.TestService` | Runs real `unittest discover` for on-disk Python projects, with an in-memory fallback for prototype artefacts. |
 | Core IDE Services | SearchService | `ide.services.search.SearchService` | Searches project artifacts and live design diagram text. |
 | Core IDE Services | HelpService | `ide.services.help.HelpService` | Provides structured help topics and contextual help. |
 | Analysis Engine | AnalysisManager | `ide.analysis.engine.AnalysisManager` | Coordinates static, dynamic, and conformance workflows. |
 | Analysis Engine | StaticAnalyser | `ide.analysis.engine.StaticAnalyser` | Abstract extension point for static analysis. |
-| Analysis Engine | ConformanceChecker | `ide.analysis.engine.ConformanceChecker` | Stub architecture/design/code consistency check. |
+| Analysis Engine | ConformanceChecker | `ide.analysis.engine.ConformanceChecker` | Lightweight architecture/design/code consistency check using parsed metadata. |
 | Analysis Engine | DynAnalyser | `ide.analysis.engine.DynAnalyser` | Abstract extension point for runtime/test-time analysis. |
 | Infrastructure | PlatformAbstraction | `ide.infrastructure.adapters.PlatformAbstraction` | OS and filesystem boundary. |
 | Infrastructure | Persistence | `ide.infrastructure.adapters.Persistence` | Storage/versioning boundary. |

@@ -252,6 +252,29 @@ class ToolExecutionResult:
 
 
 # ---------------------------------------------------------------------------
+# Debugging
+# ---------------------------------------------------------------------------
+
+@dataclass(slots=True)
+class DebugFrameSnapshot:
+    file: str
+    line: int
+    function: str
+
+
+@dataclass(slots=True)
+class DebugSnapshot:
+    status: str
+    file: str = ""
+    line: int = 0
+    function: str = ""
+    stack: list[DebugFrameSnapshot] = field(default_factory=list)
+    variables: dict[str, str] = field(default_factory=dict)
+    output: str = ""
+    message: str = ""
+
+
+# ---------------------------------------------------------------------------
 # Plugins
 # ---------------------------------------------------------------------------
 
