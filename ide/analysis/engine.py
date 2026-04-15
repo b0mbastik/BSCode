@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 
 from ide.domain.models import (
@@ -54,11 +55,16 @@ class ConformanceChecker:
     def check(self, snapshot: AnalysisSnapshot) -> AnalysisResult:
         diagnostics: list[Diagnostic] = []
         declared_components = snapshot.architecture_metadata.get("components", [])
-        code_classes = snapshot.code_metadata.get("classes", [])
-        if declared_components and not set(declared_components).intersection(code_classes):
+        code_elements = (
+            snapshot.code_metadata.get("classes", [])
+            + snapshot.code_metadata.get("interfaces", [])
+            + snapshot.code_metadata.get("functions", [])
+            + snapshot.code_metadata.get("methods", [])
+        )
+        if declared_components and not set(declared_components).intersection(code_elements):
             diagnostics.append(
                 Diagnostic(
-                    message="No code classes currently map to declared architecture components.",
+                    message="No code elements currently map to declared architecture components.",
                     severity=DiagnosticSeverity.WARNING,
                     source="ConformanceChecker",
                 )
@@ -147,9 +153,27 @@ class AnalysisManager:
 
     def run_static_analysis(self, artifacts: list[Artifact]) -> AnalysisResult:
         combined = AnalysisResult(summary="Static analysis completed.")
+        combined_snapshot = AnalysisSnapshot(artifact_id="project")
+        combined_snapshot.code_metadata = {
+            "classes": [],
+            "interfaces": [],
+            "functions": [],
+            "methods": [],
+        }
+        combined_snapshot.architecture_metadata = {"components": []}
+        combined_snapshot.design_metadata = {"elements": []}
         for artifact in artifacts:
+            if artifact.artifact_type is ArtifactType.ARCHITECTURE:
+                components = self._extract_declared_elements(artifact.content)
+                combined_snapshot.architecture_metadata["components"].extend(components)
+                continue
+            if artifact.artifact_type is ArtifactType.DESIGN:
+                elements = self._extract_declared_elements(artifact.content)
+                combined_snapshot.design_metadata["elements"].extend(elements)
+                continue
             if artifact.artifact_type is not ArtifactType.CODE:
                 continue
+
             language_name = artifact.language or "python"
             language_service = self.language_services.get(language_name)
             if language_service is None:
@@ -163,7 +187,12 @@ class AnalysisManager:
                 continue
             result = self.static_analyser.analyse(artifact, language_service)
             combined.diagnostics.extend(result.diagnostics)
-            combined.snapshot = result.snapshot
+            if result.snapshot is not None:
+                for key in ("classes", "interfaces", "functions", "methods"):
+                    values = result.snapshot.code_metadata.get(key, [])
+                    if values:
+                        combined_snapshot.code_metadata.setdefault(key, []).extend(values)
+        combined.snapshot = combined_snapshot
         if not combined.diagnostics:
             combined.diagnostics.append(
                 Diagnostic(
@@ -173,6 +202,25 @@ class AnalysisManager:
                 )
             )
         return combined
+
+    @staticmethod
+    def _extract_declared_elements(source: str) -> list[str]:
+        elements: list[str] = []
+        for line in source.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "->" in stripped:
+                left, right = stripped.split("->", 1)
+                elements.extend([left.strip(), right.strip()])
+                continue
+            match = re.search(r"\]\s*([A-Za-z][A-Za-z0-9_ ]+)", stripped)
+            if match:
+                elements.extend(part.strip() for part in match.group(1).split("|"))
+                continue
+            if re.match(r"^[A-Z][A-Za-z0-9_ ]+$", stripped):
+                elements.append(stripped)
+        return sorted({e for e in elements if e})
 
     def run_conformance_check(self, snapshot: AnalysisSnapshot | None) -> AnalysisResult:
         if snapshot is None:

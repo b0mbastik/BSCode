@@ -165,6 +165,7 @@ class IDEApplication:
         normalised = self.platform.normalise_path(root_path)
         project = self.project_manager.create_project(name, normalised)
         self.bscode_store = BSCodeStore(normalised)
+        self._load_project_state()
         if normalised.is_dir():
             self._scan_project_directory(project, normalised)
         else:
@@ -176,6 +177,7 @@ class IDEApplication:
         """Switch active project and reset project-local design persistence."""
         project = self.project_manager.switch_project(project_id)
         self.bscode_store = BSCodeStore(project.root_path)
+        self._load_project_state()
 
     def load_diagrams(self) -> dict[str, str]:
         """Return saved diagram content for the active project, keyed by diagram type."""
@@ -187,6 +189,14 @@ class IDEApplication:
         """Persist *content* for *diagram_type* under ``.bscode/design/``."""
         if self.bscode_store is not None:
             self.bscode_store.save_diagram(diagram_type, content)
+
+    def persist_project_state(self) -> None:
+        """Persist project-local comments, trace links, and revision history."""
+        if self.bscode_store is None:
+            return
+        self.bscode_store.save_comments(self.comment_service.all_comments())
+        self.bscode_store.save_trace_links(self.traceability_service.get_all())
+        self.bscode_store.save_revisions(self.version_service.all_revisions())
 
     def open_file(self, path: Path) -> Artifact | None:
         """Open a single file and register it with the active project."""
@@ -251,6 +261,13 @@ class IDEApplication:
             self.artifact_store.save(artifact)
             self.project_manager.register_artifact(project, artifact)
             count += 1
+
+    def _load_project_state(self) -> None:
+        if self.bscode_store is None:
+            return
+        self.comment_service.replace_all(self.bscode_store.load_comments())
+        self.traceability_service.replace_all(self.bscode_store.load_trace_links())
+        self.version_service.replace_all(self.bscode_store.load_revisions())
 
     def _artifact_from_path(self, path: Path) -> Artifact:
         try:

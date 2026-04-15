@@ -25,6 +25,9 @@ class TraceabilityService:
     def get_all(self) -> list[TraceLink]:
         return list(self._links.values())
 
+    def replace_all(self, links: list[TraceLink]) -> None:
+        self._links = {link.link_id: link for link in links}
+
     def get_links_for_design(self, design_artifact_id: str) -> list[TraceLink]:
         return [l for l in self._links.values() if l.design_artifact_id == design_artifact_id]
 

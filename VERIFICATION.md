@@ -10,7 +10,7 @@ python3 -m unittest discover -s tests
 ## Results
 
 - `python3 -m compileall ide main.py`: passed.
-- `python3 -m unittest discover -s tests`: passed, 10 tests.
+- `python3 -m unittest discover -s tests`: passed, 13 tests.
 
 ## Manual Launch
 
@@ -29,10 +29,12 @@ The tests exercise non-UI architecture seams:
 - project creation, switching, and artefact registration
 - artefact persistence boundary
 - Python and Java language-service metadata extraction
+- Java package-name extraction for compile/run support
 - analysis-manager orchestration
-- test-service classification
+- test-service heuristic classification and real `unittest discover` execution
 - traceability links
 - revision checkpoints
+- `.bscode` sidecar persistence for comments, traceability links, and revisions
 
 GUI behaviour is intentionally not automated. The UI remains manually smoke-testable through `main.py`.
 
@@ -40,6 +42,6 @@ GUI behaviour is intentionally not automated. The UI remains manually smoke-test
 
 - Collaboration networking is represented by a local `NetworkSync` boundary and presence stub.
 - Static and dynamic analysis are outline implementations, not production analysers.
-- Java support is a skeletal language-service plugin, not compiler integration.
+- Java compile/run support uses local `javac` and `java` where a JDK is installed.
 - Build, debug, and VCS integrations are service boundaries with stubbed behaviour.
 - Report source, references, and word-count handling are intentionally left to the report author.

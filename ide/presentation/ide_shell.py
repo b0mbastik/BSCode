@@ -203,6 +203,11 @@ class IDEShell(QMainWindow):
         self.find_in_project_action.setToolTip("Search all artefacts in the project (Ctrl+Shift+F)")
         self.find_in_project_action.triggered.connect(self.show_search_bar)
 
+        self.complete_action = QAction("Code Completion…", self)
+        self.complete_action.setShortcut(QKeySequence("Ctrl+Space"))
+        self.complete_action.setToolTip("Show language-service completion candidates (Ctrl+Space)")
+        self.complete_action.triggered.connect(self.show_code_completion)
+
         # Run
         self.run_file_action = QAction("Run Active File", self)
         self.run_file_action.setShortcut(QKeySequence("F5"))
@@ -261,6 +266,7 @@ class IDEShell(QMainWindow):
         edit_menu = self.menuBar().addMenu("&Edit")
         edit_menu.setAccessibleName("Edit menu")
         edit_menu.addAction(self.find_in_project_action)
+        edit_menu.addAction(self.complete_action)
 
         run_menu = self.menuBar().addMenu("&Run")
         run_menu.setAccessibleName("Run menu")
@@ -296,6 +302,7 @@ class IDEShell(QMainWindow):
         toolbar.addAction(self.run_tests_action)
         toolbar.addAction(self.build_action)
         toolbar.addAction(self.static_analysis_action)
+        toolbar.addAction(self.complete_action)
         toolbar.addSeparator()
 
         project_label = QLabel("Project: ")
@@ -469,6 +476,7 @@ class IDEShell(QMainWindow):
         self._refresh_project_selector()
         self._load_diagrams_for_active_project()
         self.refresh_project_explorer()
+        self._refresh_trace_links()
         self.output_view.appendPlainText(f"Created project: {name.strip()}")
 
     def open_project(self) -> None:
@@ -481,6 +489,7 @@ class IDEShell(QMainWindow):
         self._refresh_project_selector()
         self._load_diagrams_for_active_project()
         self.refresh_project_explorer()
+        self._refresh_trace_links()
         self.output_view.appendPlainText(f"Opened project: {project_name} ({path})")
         self.statusBar().showMessage(f"Project '{project_name}' loaded.")
 
@@ -513,6 +522,7 @@ class IDEShell(QMainWindow):
         session = self.application.session_manager.current_session
         author = session.display_name if session else "Local User"
         self.application.version_service.checkpoint(artifact, author)
+        self.application.persist_project_state()
         label = str(artifact.path) if artifact.path else artifact.name
         self.statusBar().showMessage(f"Saved {label}  [checkpoint created]")
 
@@ -564,9 +574,9 @@ class IDEShell(QMainWindow):
             self.statusBar().showMessage("Cannot run an in-memory artefact — save it to disk first.")
             return
 
-        if not artifact.path.suffix.lower() == ".py":
+        if artifact.path.suffix.lower() not in (".py", ".java"):
             self.statusBar().showMessage(
-                f"Run File only supports .py files (active file is {artifact.path.suffix or 'unknown'})."
+                f"Run File supports .py and .java files (active file is {artifact.path.suffix or 'unknown'})."
             )
             return
 
@@ -578,10 +588,16 @@ class IDEShell(QMainWindow):
 
         self.statusBar().showMessage(f"Running {artifact.path.name}…")
         self.output_view.appendPlainText(f"\n{'─' * 60}")
-        self.output_view.appendPlainText(f"$ python {artifact.path}")
+        if artifact.path.suffix.lower() == ".java":
+            self.output_view.appendPlainText(f"$ javac/java {artifact.path}")
+        else:
+            self.output_view.appendPlainText(f"$ python {artifact.path}")
         self.bottom_tabs.setCurrentWidget(self.output_view)
 
-        result = self.application.run_service.run_file(artifact.path, cwd=cwd)
+        if artifact.path.suffix.lower() == ".java":
+            result = self.application.run_service.run_java_file(artifact.path, cwd=cwd)
+        else:
+            result = self.application.run_service.run_file(artifact.path, cwd=cwd)
 
         self.output_view.appendPlainText(result.output)
         self.output_view.appendPlainText(
@@ -658,6 +674,26 @@ class IDEShell(QMainWindow):
     def show_search_bar(self) -> None:
         self.search_field.setFocus()
         self.search_field.selectAll()
+
+    def show_code_completion(self) -> None:
+        if self.active_editor is None:
+            self.statusBar().showMessage("No active editor for code completion.")
+            return
+        candidates = self.active_editor.completion_candidates()
+        if not candidates:
+            self.statusBar().showMessage("No completion candidates available.")
+            return
+        completion, accepted = QInputDialog.getItem(
+            self,
+            "Code Completion",
+            "Insert completion:",
+            candidates,
+            0,
+            False,
+        )
+        if accepted and completion:
+            self.active_editor.insert_completion(completion)
+            self.statusBar().showMessage(f"Inserted completion: {completion}")
 
     def _execute_search(self) -> None:
         query = self.search_field.text().strip()
@@ -891,6 +927,7 @@ class IDEShell(QMainWindow):
             body=dlg.body,
         )
         self.application.comment_service.add_comment(comment)
+        self.application.persist_project_state()
         self._refresh_comments(artifact.artifact_id)
         self.statusBar().showMessage(f"Comment added to {artifact.name}:{dlg.line_number}.")
 
@@ -928,6 +965,7 @@ class IDEShell(QMainWindow):
             description=dlg.description.text(),
         )
         self.application.traceability_service.add_link(link)
+        self.application.persist_project_state()
         self._refresh_trace_links()
         self.statusBar().showMessage("Trace link added.")
 
@@ -937,6 +975,7 @@ class IDEShell(QMainWindow):
             return
         link_id = selected[0].data(0, Qt.ItemDataRole.UserRole)
         if link_id and self.application.traceability_service.remove_link(link_id):
+            self.application.persist_project_state()
             self._refresh_trace_links()
             self.statusBar().showMessage("Trace link removed.")
 
@@ -981,6 +1020,7 @@ class IDEShell(QMainWindow):
         self._clear_code_editors()
         self._load_diagrams_for_active_project()
         self.refresh_project_explorer()
+        self._refresh_trace_links()
         project = self.application.project_manager.active_project
         if project is not None:
             self.output_view.appendPlainText(f"Switched project: {project.name}")

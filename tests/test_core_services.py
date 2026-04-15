@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
-from ide.domain.models import Artifact, ArtifactType, Operation, TestStatus, TraceLink
+from ide.domain.models import Artifact, ArtifactType, Comment, Operation, Revision, TestStatus, TraceLink
 from ide.infrastructure.adapters import InMemoryPersistence, RevisionLog
+from ide.infrastructure.bscode_store import BSCodeStore
+from ide.services.integrations import RunService
 from ide.services.language import JavaLangSvc, PythonLangSvc
 from ide.services.testing import TestService
 from ide.workspace.traceability import TraceabilityService
@@ -118,6 +121,36 @@ class AnalysisAndTestingTests(unittest.TestCase):
         self.assertEqual(statuses["test_skipped"], TestStatus.SKIPPED)
         self.assertFalse(result.success)
 
+    def test_test_service_runs_real_unittest_for_disk_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            test_file = root / "test_real.py"
+            test_file.write_text(
+                "import unittest\n\n"
+                "class RealTest(unittest.TestCase):\n"
+                "    def test_ok(self):\n"
+                "        self.assertEqual(1, 1)\n",
+                encoding="utf-8",
+            )
+            project = ProjectManager().create_project("DiskTests", root)
+            artifact = Artifact(
+                name=test_file.name,
+                artifact_type=ArtifactType.TEST,
+                language="python",
+                path=test_file,
+                content=test_file.read_text(encoding="utf-8"),
+            )
+
+            result = TestService().run_tests(project, [artifact])
+
+            self.assertTrue(result.success)
+            self.assertIn("unittest", result.command)
+
+    def test_run_service_extracts_java_package_name(self) -> None:
+        source = "package edu.demo;\npublic class Main {}\n"
+
+        self.assertEqual(RunService._java_package(source), "edu.demo")
+
 
 class TraceabilityAndRevisionTests(unittest.TestCase):
     def test_traceability_links_can_be_added_queried_and_removed(self) -> None:
@@ -147,6 +180,35 @@ class TraceabilityAndRevisionTests(unittest.TestCase):
 
         self.assertEqual(service.get_history(artifact.artifact_id), [revision])
         self.assertEqual(revision.content, artifact.content)
+
+    def test_bscode_store_persists_workspace_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = BSCodeStore(Path(tmp))
+            comment = Comment(
+                artifact_id="a1",
+                line=3,
+                author="tester",
+                body="review note",
+            )
+            link = TraceLink(
+                design_artifact_id="d1",
+                design_element="Diagram",
+                code_artifact_id="c1",
+                code_element="Class",
+            )
+            revision = Revision(
+                artifact_id="a1",
+                content="v1",
+                author="tester",
+            )
+
+            store.save_comments([comment])
+            store.save_trace_links([link])
+            store.save_revisions([revision])
+
+            self.assertEqual(store.load_comments()[0].body, "review note")
+            self.assertEqual(store.load_trace_links()[0].code_element, "Class")
+            self.assertEqual(store.load_revisions()[0].content, "v1")
 
 
 class TextOperationTests(unittest.TestCase):

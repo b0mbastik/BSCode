@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QTextCursor, QTextFormat
+from PySide6.QtGui import QColor, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
@@ -16,6 +16,20 @@ from PySide6.QtWidgets import (
 
 from ide.domain.models import Artifact, Diagnostic, DiagnosticSeverity, Operation, TextBuffer, UserSession
 from ide.services.language import LanguageService
+
+
+class _LanguageHighlighter(QSyntaxHighlighter):
+    def __init__(self, document, language_service: LanguageService) -> None:
+        super().__init__(document)
+        self.language_service = language_service
+        self.keyword_format = QTextCharFormat()
+        self.keyword_format.setForeground(QColor(0, 68, 153))
+        self.keyword_format.setFontWeight(700)
+
+    def highlightBlock(self, text: str) -> None:  # noqa: N802 - Qt override
+        for start, end, token_type in self.language_service.highlight(text):
+            if token_type == "keyword" and end > start:
+                self.setFormat(start, end - start, self.keyword_format)
 
 
 class EditorView(QWidget):
@@ -60,9 +74,11 @@ class EditorView(QWidget):
         self.editor.setAccessibleName(f"Code editor for {artifact.name}")
         self.editor.setToolTip(
             "Code editor — Ctrl+S saves and creates a version checkpoint. "
-            "Edits are broadcast to collaborators automatically."
+            "Edits are broadcast to collaborators automatically. "
+            "Use Ctrl+Space from the IDE shell for code completion."
         )
         self.editor.textChanged.connect(self._on_text_changed)
+        self.highlighter = _LanguageHighlighter(self.editor.document(), self.language_service)
 
         layout.addWidget(self.header)
         layout.addWidget(self.editor)
@@ -90,6 +106,18 @@ class EditorView(QWidget):
             selection.format.setBackground(self._diagnostic_colour(diagnostic.severity))
             selections.append(selection)
         self.editor.setExtraSelections(selections)
+
+    def completion_candidates(self) -> list[str]:
+        cursor = self.editor.textCursor()
+        block = cursor.block()
+        line = block.blockNumber() + 1
+        column = cursor.positionInBlock() + 1
+        return self.language_service.complete(self.editor.toPlainText(), line, column)
+
+    def insert_completion(self, completion: str) -> None:
+        cursor = self.editor.textCursor()
+        cursor.insertText(completion)
+        self.editor.setTextCursor(cursor)
 
     def _on_text_changed(self) -> None:
         if self._updating_from_model:

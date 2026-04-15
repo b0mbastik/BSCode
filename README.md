@@ -60,6 +60,8 @@ python3 -m unittest discover -s tests
 
 See `VERIFICATION.md` for the latest recorded verification notes and intentional limitations.
 
+See `IMPLEMENTATION_STATUS.md` for a brief fully-implemented vs outlined status against the target-system brief.
+
 ## Extending With A New Language
 
 1. Implement the `LanguageService` protocol in `ide.services.language`.

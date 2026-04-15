@@ -24,6 +24,7 @@
 
 - [x] Smoke/unit tests present under `tests/`.
 - [x] Verification note present: `VERIFICATION.md`.
+- [x] Implementation status note present: `IMPLEMENTATION_STATUS.md`.
 - [x] Compile check recorded.
 - [x] Unit test run recorded.
 - [ ] Manual GUI launch smoke check before final zip.

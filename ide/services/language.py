@@ -30,9 +30,8 @@ class PythonLangSvc:
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
         spans: list[tuple[int, int, str]] = []
         for keyword in self.keywords:
-            start = source.find(keyword)
-            if start >= 0:
-                spans.append((start, start + len(keyword), "keyword"))
+            for match in re.finditer(rf"\b{re.escape(keyword)}\b", source):
+                spans.append((match.start(), match.end(), "keyword"))
         return spans
 
     def parse(self, source: str, artifact_id: str) -> AnalysisSnapshot:

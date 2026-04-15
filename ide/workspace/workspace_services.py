@@ -155,6 +155,11 @@ class CommentService:
     def all_comments(self) -> list[Comment]:
         return [c for bucket in self._comments.values() for c in bucket]
 
+    def replace_all(self, comments: list[Comment]) -> None:
+        self._comments.clear()
+        for comment in comments:
+            self._comments.setdefault(comment.artifact_id, []).append(comment)
+
 
 # ---------------------------------------------------------------------------
 # Version service
@@ -187,3 +192,9 @@ class VersionService:
 
     def get_history(self, artifact_id: str) -> list[Revision]:
         return self._log.get_history(artifact_id)
+
+    def all_revisions(self) -> list[Revision]:
+        return self._log.all_revisions()
+
+    def replace_all(self, revisions: list[Revision]) -> None:
+        self._log.replace_all(revisions)

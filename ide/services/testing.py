@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 from ide.domain.models import (
@@ -20,19 +23,24 @@ _TEST_FUNC_RE = re.compile(r"^[ \t]*def (test_\w+)\s*\(", re.MULTILINE)
 
 
 class TestService:
-    """Discovers test functions across project artefacts and simulates execution.
+    """Discovers and runs Python tests where possible.
 
-    The stub heuristic:
+    If test files exist on disk under the project root this service runs
+    ``python -m unittest discover``. For in-memory artefacts used by the
+    outline prototype it falls back to a deterministic lightweight heuristic:
+
     - Files whose name starts with ``test_`` or ends with ``_test.py`` are
       treated as test suites.
     - Every ``def test_*`` function becomes a TestCase.
     - Functions whose body (next non-blank line) contains ``raise`` or
       ``assert False`` are marked FAILED; functions containing ``TODO`` or
       ``pass`` only are SKIPPED; everything else PASSED.
-    - Dynamic analysis results are attached via ``attach_dynamic_results``.
     """
 
     def run_tests(self, project: Project, artifacts: list[Artifact]) -> TestRunResult:
+        if self._can_run_unittest(project, artifacts):
+            return self._run_unittest_discover(project)
+
         test_artifacts = [
             a for a in artifacts
             if a.artifact_type in (ArtifactType.CODE, ArtifactType.TEST)
@@ -66,6 +74,78 @@ class TestService:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _can_run_unittest(project: Project, artifacts: list[Artifact]) -> bool:
+        if not project.root_path.exists() or not project.root_path.is_dir():
+            return False
+        return any(
+            artifact.path is not None
+            and artifact.path.exists()
+            and artifact.path.suffix == ".py"
+            and TestService._is_test_file(artifact.path.name)
+            for artifact in artifacts
+        )
+
+    def _run_unittest_discover(self, project: Project) -> TestRunResult:
+        command = [sys.executable, "-m", "unittest", "discover", "-s", str(project.root_path)]
+        started = time.perf_counter()
+        try:
+            proc = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=str(project.root_path),
+            )
+        except subprocess.TimeoutExpired:
+            suite = TestSuite(
+                name="unittest discover",
+                cases=[
+                    TestCase(
+                        name="unittest discover",
+                        status=TestStatus.ERROR,
+                        duration_ms=30000.0,
+                        message="Test run timed out after 30 seconds.",
+                    )
+                ],
+            )
+            return TestRunResult(
+                suites=[suite],
+                summary="ERROR - unittest discover timed out",
+                success=False,
+                command=" ".join(command),
+            )
+
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
+        output = (proc.stdout + ("\n" + proc.stderr if proc.stderr else "")).strip()
+        status = TestStatus.PASSED if proc.returncode == 0 else TestStatus.FAILED
+        summary = self._unittest_summary(output, proc.returncode)
+        suite = TestSuite(
+            name="unittest discover",
+            cases=[
+                TestCase(
+                    name="unittest discover",
+                    status=status,
+                    duration_ms=duration_ms,
+                    message=summary,
+                )
+            ],
+        )
+        return TestRunResult(
+            suites=[suite],
+            summary=summary,
+            success=proc.returncode == 0,
+            command=" ".join(command),
+        )
+
+    @staticmethod
+    def _unittest_summary(output: str, return_code: int) -> str:
+        for line in reversed(output.splitlines()):
+            stripped = line.strip()
+            if stripped.startswith("OK") or stripped.startswith("FAILED") or stripped.startswith("ERROR"):
+                return stripped
+        return "PASSED - unittest discover" if return_code == 0 else "FAILED - unittest discover"
 
     @staticmethod
     def _is_test_file(name: str) -> bool:

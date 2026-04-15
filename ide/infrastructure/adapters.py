@@ -91,6 +91,14 @@ class RevisionLog:
         """Return revisions newest-first."""
         return list(self._log.get(artifact_id, []))
 
+    def all_revisions(self) -> list[Revision]:
+        return [revision for bucket in self._log.values() for revision in bucket]
+
+    def replace_all(self, revisions: list[Revision]) -> None:
+        self._log.clear()
+        for revision in sorted(revisions, key=lambda r: r.timestamp, reverse=False):
+            self.record(revision)
+
     def clear(self, artifact_id: str) -> None:
         self._log.pop(artifact_id, None)
 

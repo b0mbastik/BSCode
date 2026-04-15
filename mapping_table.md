@@ -3,7 +3,7 @@
 | Architecture element | Design element | Implementation element | Notes |
 | --- | --- | --- | --- |
 | Presentation | IDEShell | `ide.presentation.ide_shell.IDEShell` | Main PySide6 window, menus, docks, tabs, status bar. |
-| Presentation | EditorView | `ide.presentation.editor_view.EditorView` | Code editor with text buffer, local operations, diagnostics rendering. |
+| Presentation | EditorView | `ide.presentation.editor_view.EditorView` | Code editor with text buffer, syntax highlighting, local operations, and diagnostics rendering. |
 | Presentation | DiagramCanvas | `ide.presentation.widgets.DiagramCanvas` | Text-based architecture/design editing surface with component, layered, deployment, class, and sequence views. |
 | Presentation | CollabUI | `ide.presentation.widgets.CollabUI` | Presence and collaboration event panel. |
 | Workspace | ProjectManager | `ide.workspace.workspace_services.ProjectManager` | Creates and switches active projects. |
@@ -15,11 +15,12 @@
 | Workspace | TraceabilityService | `ide.workspace.traceability.TraceabilityService` | Maintains design-to-code trace links. |
 | Core IDE Services | LanguageService | `ide.services.language.LanguageService` | Protocol for pluggable language support. |
 | Core IDE Services | PythonLangSvc | `ide.services.language.PythonLangSvc` | Concrete outline language service for Python. |
-| Core IDE Services | JavaLangSvc | `ide.services.language.JavaLangSvc` | Skeletal language service for Java file recognition, metadata extraction, completion and highlighting. |
+| Core IDE Services | JavaLangSvc | `ide.services.language.JavaLangSvc` | Java language service for file recognition, metadata extraction, completion and highlighting. |
 | Core IDE Services | BuildService | `ide.services.integrations.BuildService` | Stub for external interpreter/build tool integration. |
 | Core IDE Services | DebugService | `ide.services.integrations.DebugService` | Stub for debugger integration. |
 | Core IDE Services | VCSService | `ide.services.integrations.VCSService` | Stub Git integration. |
-| Core IDE Services | TestService | `ide.services.testing.TestService` | Discovers Python-style test functions and returns structured stub results. |
+| Core IDE Services | RunService | `ide.services.integrations.RunService` | Runs Python files and compiles/runs Java files through local toolchains. |
+| Core IDE Services | TestService | `ide.services.testing.TestService` | Runs real `unittest discover` for on-disk Python projects, with an in-memory fallback for prototype artefacts. |
 | Core IDE Services | SearchService | `ide.services.search.SearchService` | Searches project artifacts and live design diagram text. |
 | Core IDE Services | HelpService | `ide.services.help.HelpService` | Provides structured help topics and contextual help. |
 | Analysis Engine | AnalysisManager | `ide.analysis.engine.AnalysisManager` | Coordinates static, dynamic, and conformance workflows. |
@@ -30,7 +31,7 @@
 | Infrastructure | Persistence | `ide.infrastructure.adapters.Persistence` | Storage/versioning boundary. |
 | Infrastructure | NetworkSync | `ide.infrastructure.adapters.NetworkSync` | Collaboration transport boundary. |
 | Infrastructure | PluginRegistry | `ide.infrastructure.adapters.PluginRegistry` | Registers language and analyser extensions. |
-| Infrastructure | BSCodeStore | `ide.infrastructure.bscode_store.BSCodeStore` | Persists project-local design diagram text under `.bscode/design/`. |
+| Infrastructure | BSCodeStore | `ide.infrastructure.bscode_store.BSCodeStore` | Persists project-local design diagrams plus comments, trace links, and revisions under `.bscode/`. |
 | Application | IDEApplication | `ide.app.application.IDEApplication` | Composition root and startup flow. |
 
 ## Diagram Source Mapping
