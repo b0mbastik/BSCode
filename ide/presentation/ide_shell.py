@@ -526,7 +526,9 @@ class IDEShell(QMainWindow):
             self.debug_stop_action,
         ):
             btn = QPushButton(action.text())
-            btn.setDefaultAction(action)
+            btn.setToolTip(action.toolTip())
+            btn.setAccessibleName(f"Debugger {action.text()} button")
+            btn.clicked.connect(action.trigger)
             debug_controls_layout.addWidget(btn)
         debug_layout.addWidget(debug_controls)
 
