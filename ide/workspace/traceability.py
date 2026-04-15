@@ -8,12 +8,11 @@ from ide.domain.models import TraceLink
 class TraceabilityService:
     """Manages TraceLinks that connect design elements to code artefacts.
 
-    Links are held in memory. A real implementation would persist them
-    alongside the project (e.g. a JSON sidecar file).
+    Persistence is handled by the project-local ``BSCodeStore`` sidecar.
     """
 
     def __init__(self) -> None:
-        self._links: dict[str, TraceLink] = {}  # link_id → TraceLink
+        self._links: dict[str, TraceLink] = {}
 
     def add_link(self, link: TraceLink) -> TraceLink:
         self._links[link.link_id] = link
@@ -29,14 +28,20 @@ class TraceabilityService:
         self._links = {link.link_id: link for link in links}
 
     def get_links_for_design(self, design_artifact_id: str) -> list[TraceLink]:
-        return [l for l in self._links.values() if l.design_artifact_id == design_artifact_id]
+        return [
+            link for link in self._links.values()
+            if link.design_artifact_id == design_artifact_id
+        ]
 
     def get_links_for_code(self, code_artifact_id: str) -> list[TraceLink]:
-        return [l for l in self._links.values() if l.code_artifact_id == code_artifact_id]
+        return [
+            link for link in self._links.values()
+            if link.code_artifact_id == code_artifact_id
+        ]
 
     def get_links_for_artifact(self, artifact_id: str) -> list[TraceLink]:
         """Return all links that mention *artifact_id* on either side."""
         return [
-            l for l in self._links.values()
-            if l.design_artifact_id == artifact_id or l.code_artifact_id == artifact_id
+            link for link in self._links.values()
+            if link.design_artifact_id == artifact_id or link.code_artifact_id == artifact_id
         ]

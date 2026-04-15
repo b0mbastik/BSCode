@@ -1,7 +1,7 @@
-"""Project-local .bscode persistence directory.
+"""Project-local ``.bscode`` persistence directory.
 
-All IDE-internal state that should live alongside the project but not
-clutter the project tree is stored here.
+IDE-internal state that should move with the project, but not clutter the
+visible source tree, is stored under ``.bscode``.
 
 Current layout::
 
@@ -14,11 +14,6 @@ Current layout::
           uml-class.md
           uml-sequence.md
         <reserved for future IDE state>
-
-Adding a new category in the future:
-  1. Add a ``<category>_path`` property.
-  2. Call ``ensure_dirs()`` before first write.
-  3. Read/write via standard ``Path`` operations.
 """
 
 from __future__ import annotations
@@ -29,7 +24,7 @@ from pathlib import Path
 
 from ide.domain.models import Comment, Revision, TraceLink
 
-# Canonical diagram-type names (matches DiagramCanvas tab labels).
+# Canonical diagram-type names matching DiagramCanvas tab labels.
 DIAGRAM_TYPES: tuple[str, ...] = (
     "Component View",
     "Layered View",
@@ -38,46 +33,37 @@ DIAGRAM_TYPES: tuple[str, ...] = (
     "UML Sequence",
 )
 
-# Canonical diagram-type name  →  filename stem inside .bscode/design/
 _DIAGRAM_FILENAMES: dict[str, str] = {
-    "Component View":  "component-view",
-    "Layered View":    "layered-view",
+    "Component View": "component-view",
+    "Layered View": "layered-view",
     "Deployment View": "deployment-view",
-    "UML Class":       "uml-class",
-    "UML Sequence":    "uml-sequence",
+    "UML Class": "uml-class",
+    "UML Sequence": "uml-sequence",
 }
 
 
 class BSCodeStore:
     """Manages the ``.bscode`` project-local persistence directory.
 
-    Create one instance per open project.  All paths are derived from
-    *project_root* so the store moves with the project folder.
+    Create one instance per open project. All paths are derived from
+    ``project_root`` so the store moves with the project folder.
     """
 
-    ROOT_DIR    = ".bscode"
-    DESIGN_DIR  = "design"
+    ROOT_DIR = ".bscode"
+    DESIGN_DIR = "design"
     COMMENTS_FILE = "comments.json"
     TRACE_FILE = "traceability.json"
     REVISIONS_FILE = "revisions.json"
 
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
-        self.root         = project_root / self.ROOT_DIR
-        self.design_path  = self.root / self.DESIGN_DIR
-
-    # ------------------------------------------------------------------
-    # Directory management
-    # ------------------------------------------------------------------
+        self.root = project_root / self.ROOT_DIR
+        self.design_path = self.root / self.DESIGN_DIR
 
     def ensure_dirs(self) -> None:
         """Create ``.bscode/design/`` (and any future subdirs) if absent."""
         self.root.mkdir(parents=True, exist_ok=True)
         self.design_path.mkdir(parents=True, exist_ok=True)
-
-    # ------------------------------------------------------------------
-    # Design artefact persistence
-    # ------------------------------------------------------------------
 
     def save_diagram(self, diagram_type: str, content: str) -> None:
         """Write *content* for *diagram_type* to ``.bscode/design/``."""
@@ -118,37 +104,33 @@ class BSCodeStore:
             for stem in _DIAGRAM_FILENAMES.values()
         )
 
-    # ------------------------------------------------------------------
-    # Workspace sidecar persistence
-    # ------------------------------------------------------------------
-
     def save_comments(self, comments: list[Comment]) -> None:
         self._write_json(
             self.root / self.COMMENTS_FILE,
             [
                 {
-                    "comment_id": c.comment_id,
-                    "artifact_id": c.artifact_id,
-                    "line": c.line,
-                    "author": c.author,
-                    "body": c.body,
-                    "timestamp": c.timestamp.isoformat(),
+                    "comment_id": comment.comment_id,
+                    "artifact_id": comment.artifact_id,
+                    "line": comment.line,
+                    "author": comment.author,
+                    "body": comment.body,
+                    "timestamp": comment.timestamp.isoformat(),
                 }
-                for c in comments
+                for comment in comments
             ],
         )
 
     def load_comments(self) -> list[Comment]:
         return [
             Comment(
-                comment_id=str(raw.get("comment_id", "")),
-                artifact_id=str(raw.get("artifact_id", "")),
-                line=int(raw.get("line", 1)),
-                author=str(raw.get("author", "")),
-                body=str(raw.get("body", "")),
-                timestamp=self._parse_datetime(raw.get("timestamp", "")),
+                comment_id=str(record.get("comment_id", "")),
+                artifact_id=str(record.get("artifact_id", "")),
+                line=int(record.get("line", 1)),
+                author=str(record.get("author", "")),
+                body=str(record.get("body", "")),
+                timestamp=self._parse_datetime(record.get("timestamp", "")),
             )
-            for raw in self._read_json(self.root / self.COMMENTS_FILE)
+            for record in self._read_json(self.root / self.COMMENTS_FILE)
         ]
 
     def save_trace_links(self, links: list[TraceLink]) -> None:
@@ -170,14 +152,14 @@ class BSCodeStore:
     def load_trace_links(self) -> list[TraceLink]:
         return [
             TraceLink(
-                link_id=str(raw.get("link_id", "")),
-                design_artifact_id=str(raw.get("design_artifact_id", "")),
-                design_element=str(raw.get("design_element", "")),
-                code_artifact_id=str(raw.get("code_artifact_id", "")),
-                code_element=str(raw.get("code_element", "")),
-                description=str(raw.get("description", "")),
+                link_id=str(record.get("link_id", "")),
+                design_artifact_id=str(record.get("design_artifact_id", "")),
+                design_element=str(record.get("design_element", "")),
+                code_artifact_id=str(record.get("code_artifact_id", "")),
+                code_element=str(record.get("code_element", "")),
+                description=str(record.get("description", "")),
             )
-            for raw in self._read_json(self.root / self.TRACE_FILE)
+            for record in self._read_json(self.root / self.TRACE_FILE)
         ]
 
     def save_revisions(self, revisions: list[Revision]) -> None:
@@ -185,33 +167,29 @@ class BSCodeStore:
             self.root / self.REVISIONS_FILE,
             [
                 {
-                    "revision_id": r.revision_id,
-                    "artifact_id": r.artifact_id,
-                    "content": r.content,
-                    "author": r.author,
-                    "message": r.message,
-                    "timestamp": r.timestamp.isoformat(),
+                    "revision_id": revision.revision_id,
+                    "artifact_id": revision.artifact_id,
+                    "content": revision.content,
+                    "author": revision.author,
+                    "message": revision.message,
+                    "timestamp": revision.timestamp.isoformat(),
                 }
-                for r in revisions
+                for revision in revisions
             ],
         )
 
     def load_revisions(self) -> list[Revision]:
         return [
             Revision(
-                revision_id=str(raw.get("revision_id", "")),
-                artifact_id=str(raw.get("artifact_id", "")),
-                content=str(raw.get("content", "")),
-                author=str(raw.get("author", "")),
-                message=str(raw.get("message", "Checkpoint")),
-                timestamp=self._parse_datetime(raw.get("timestamp", "")),
+                revision_id=str(record.get("revision_id", "")),
+                artifact_id=str(record.get("artifact_id", "")),
+                content=str(record.get("content", "")),
+                author=str(record.get("author", "")),
+                message=str(record.get("message", "Checkpoint")),
+                timestamp=self._parse_datetime(record.get("timestamp", "")),
             )
-            for raw in self._read_json(self.root / self.REVISIONS_FILE)
+            for record in self._read_json(self.root / self.REVISIONS_FILE)
         ]
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _diagram_path(self, diagram_type: str) -> Path | None:
         stem = _DIAGRAM_FILENAMES.get(diagram_type)

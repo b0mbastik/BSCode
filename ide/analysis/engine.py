@@ -26,6 +26,8 @@ class StaticAnalyser(ABC):
 
 
 class PythonStaticAnalyser(StaticAnalyser):
+    """Static analysis adapter backed by the registered language service."""
+
     def analyse(self, artifact: Artifact, language_service: LanguageService) -> AnalysisResult:
         snapshot = language_service.parse(artifact.content, artifact.artifact_id)
         diagnostics: list[Diagnostic] = []
@@ -40,14 +42,14 @@ class PythonStaticAnalyser(StaticAnalyser):
             and artifact.content.strip()
         ):
             diagnostics.append(
-                    Diagnostic(
-                        message="Python artifact contains no functions yet.",
-                        severity=DiagnosticSeverity.INFO,
-                        line=0,
-                        source="StaticAnalyser",
-                        artifact_id=artifact.artifact_id,
-                    )
+                Diagnostic(
+                    message="Python artifact contains no functions yet.",
+                    severity=DiagnosticSeverity.INFO,
+                    line=0,
+                    source="StaticAnalyser",
+                    artifact_id=artifact.artifact_id,
                 )
+            )
         return AnalysisResult(
             diagnostics=diagnostics,
             summary=f"Static analysis completed for {artifact.name}.",
@@ -82,7 +84,7 @@ class ConformanceChecker:
 
 
 class DynAnalyser(ABC):
-    """Dynamic analysis boundary — implementations run at test time."""
+    """Dynamic-analysis boundary; concrete implementations run at test time."""
 
     @abstractmethod
     def analyse_runtime(self, project: Project) -> AnalysisResult:
@@ -95,11 +97,10 @@ class DynAnalyser(ABC):
 
 
 class StubDynAnalyser(DynAnalyser):
-    """Stub dynamic analyser that connects to the test-execution flow.
+    """Outline dynamic analyser connected to the test-execution flow.
 
-    For each failed or errored test case the analyser emits an ERROR
-    diagnostic so that the inline editor highlights are updated
-    immediately after a test run completes.
+    Failed or errored test cases become diagnostics so the editor can
+    highlight runtime feedback immediately after a test run.
     """
 
     def analyse_runtime(self, project: Project) -> AnalysisResult:
@@ -112,7 +113,7 @@ class StubDynAnalyser(DynAnalyser):
                     source="DynAnalyser",
                 )
             ],
-            summary=f"Dynamic analysis stub executed for {project.name}.",
+            summary=f"Dynamic analysis outline executed for {project.name}.",
         )
 
     def analyse_test_results(self, test_result: TestRunResult) -> AnalysisResult:
@@ -122,7 +123,7 @@ class StubDynAnalyser(DynAnalyser):
                 if case.status is TestStatus.FAILED:
                     diagnostics.append(
                         Diagnostic(
-                            message=f"Test failed: {case.name} — {case.message or 'assertion error'}",
+                            message=f"Test failed: {case.name} - {case.message or 'assertion error'}",
                             severity=DiagnosticSeverity.ERROR,
                             line=case.line or 1,
                             source="DynAnalyser",
@@ -132,7 +133,7 @@ class StubDynAnalyser(DynAnalyser):
                 elif case.status is TestStatus.ERROR:
                     diagnostics.append(
                         Diagnostic(
-                            message=f"Test error: {case.name} — {case.message or 'unexpected exception'}",
+                            message=f"Test error: {case.name} - {case.message or 'unexpected exception'}",
                             severity=DiagnosticSeverity.ERROR,
                             line=case.line or 1,
                             source="DynAnalyser",
@@ -205,7 +206,7 @@ class AnalysisManager:
         if not combined.diagnostics:
             combined.diagnostics.append(
                 Diagnostic(
-                    message="No static analysis issues found by stub analyser.",
+                    message="No static analysis issues found by outline analyser.",
                     severity=DiagnosticSeverity.INFO,
                     line=0,
                     source="AnalysisManager",
@@ -230,7 +231,7 @@ class AnalysisManager:
                 continue
             if re.match(r"^[A-Z][A-Za-z0-9_ ]+$", stripped):
                 elements.append(stripped)
-        return sorted({e for e in elements if e})
+        return sorted({element for element in elements if element})
 
     def run_conformance_check(self, snapshot: AnalysisSnapshot | None) -> AnalysisResult:
         if snapshot is None:

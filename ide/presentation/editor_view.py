@@ -26,7 +26,7 @@ class _LanguageHighlighter(QSyntaxHighlighter):
         self.keyword_format.setForeground(QColor(0, 68, 153))
         self.keyword_format.setFontWeight(700)
 
-    def highlightBlock(self, text: str) -> None:  # noqa: N802 - Qt override
+    def highlightBlock(self, text: str) -> None:
         for start, end, token_type in self.language_service.highlight(text):
             if token_type == "keyword" and end > start:
                 self.setFormat(start, end - start, self.keyword_format)
@@ -39,13 +39,13 @@ class _LineNumberArea(QWidget):
         self.setAccessibleName("Line number and breakpoint gutter")
         self.setToolTip("Click a line number to toggle a debugger breakpoint.")
 
-    def sizeHint(self) -> QSize:  # noqa: N802 - Qt override
+    def sizeHint(self) -> QSize:
         return QSize(self.editor.line_number_area_width(), 0)
 
-    def paintEvent(self, event) -> None:  # noqa: ANN001, N802 - Qt override
+    def paintEvent(self, event) -> None:
         self.editor.line_number_area_paint_event(event)
 
-    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802 - Qt override
+    def mousePressEvent(self, event) -> None:
         self.editor.line_number_area_mouse_press(event)
 
 
@@ -79,14 +79,14 @@ class CodeEditor(QPlainTextEdit):
         digits = len(str(max(1, self.blockCount())))
         return 18 + self.fontMetrics().horizontalAdvance("9") * digits
 
-    def resizeEvent(self, event) -> None:  # noqa: ANN001, N802 - Qt override
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         contents = self.contentsRect()
         self.line_number_area.setGeometry(
             QRect(contents.left(), contents.top(), self.line_number_area_width(), contents.height())
         )
 
-    def line_number_area_paint_event(self, event) -> None:  # noqa: ANN001
+    def line_number_area_paint_event(self, event) -> None:
         painter = QPainter(self.line_number_area)
         painter.fillRect(event.rect(), self.palette().base())
 
@@ -118,7 +118,7 @@ class CodeEditor(QPlainTextEdit):
             bottom = top + int(self.blockBoundingRect(block).height())
             block_number += 1
 
-    def line_number_area_mouse_press(self, event) -> None:  # noqa: ANN001
+    def line_number_area_mouse_press(self, event) -> None:
         y = int(event.position().y()) if hasattr(event, "position") else event.y()
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
@@ -136,9 +136,9 @@ class CodeEditor(QPlainTextEdit):
     def _update_line_number_area_width(self) -> None:
         self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
 
-    def _update_line_number_area(self, rect: QRect, dy: int) -> None:
-        if dy:
-            self.line_number_area.scroll(0, dy)
+    def _update_line_number_area(self, rect: QRect, vertical_delta: int) -> None:
+        if vertical_delta:
+            self.line_number_area.scroll(0, vertical_delta)
         else:
             self.line_number_area.update(0, rect.y(), self.line_number_area.width(), rect.height())
         if rect.contains(self.viewport().rect()):
@@ -186,7 +186,7 @@ class EditorView(QWidget):
         self.editor.setPlainText(self.buffer.content)
         self.editor.setAccessibleName(f"Code editor for {artifact.name}")
         self.editor.setToolTip(
-            "Code editor — Ctrl+S saves and creates a version checkpoint. "
+            "Code editor: Ctrl+S saves and creates a version checkpoint. "
             "Edits are broadcast to collaborators automatically. "
             "Use Ctrl+Space from the IDE shell for code completion."
         )
@@ -196,7 +196,6 @@ class EditorView(QWidget):
         layout.addWidget(self.header)
         layout.addWidget(self.editor)
 
-        # Make the editor itself focusable via Tab key.
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setFocusProxy(self.editor)
 
@@ -259,7 +258,7 @@ class EditorView(QWidget):
     @staticmethod
     def _diagnostic_colour(severity: DiagnosticSeverity) -> QColor:
         if severity is DiagnosticSeverity.ERROR:
-            return QColor(255, 220, 220)   # light red — sufficient contrast on white
+            return QColor(255, 220, 220)
         if severity is DiagnosticSeverity.WARNING:
-            return QColor(255, 246, 204)   # light amber
-        return QColor(226, 238, 255)       # light blue for info
+            return QColor(255, 246, 204)
+        return QColor(226, 238, 255)

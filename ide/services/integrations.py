@@ -34,45 +34,45 @@ class RunService:
         timeout: int = _DEFAULT_RUN_TIMEOUT,
         extra_args: list[str] | None = None,
     ) -> ToolExecutionResult:
-        cmd = [sys.executable, str(path)] + (extra_args or [])
+        command_args = [sys.executable, str(path)] + (extra_args or [])
         working_dir = str(cwd or path.parent)
         try:
-            proc = subprocess.run(
-                cmd,
+            process_result = subprocess.run(
+                command_args,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
                 cwd=working_dir,
             )
-            output = proc.stdout
-            if proc.stderr:
-                output += ("\n" if output else "") + "[stderr]\n" + proc.stderr
+            output = process_result.stdout
+            if process_result.stderr:
+                output += ("\n" if output else "") + "[stderr]\n" + process_result.stderr
             if not output.strip():
                 output = "(no output)"
             return ToolExecutionResult(
-                success=proc.returncode == 0,
-                command=" ".join(cmd),
+                success=process_result.returncode == 0,
+                command=" ".join(command_args),
                 output=output,
-                exit_code=proc.returncode,
+                exit_code=process_result.returncode,
             )
         except subprocess.TimeoutExpired:
             return ToolExecutionResult(
                 success=False,
-                command=" ".join(cmd),
+                command=" ".join(command_args),
                 output=f"Process timed out after {timeout} second(s).",
                 exit_code=-1,
             )
         except FileNotFoundError:
             return ToolExecutionResult(
                 success=False,
-                command=" ".join(cmd),
+                command=" ".join(command_args),
                 output=f"Python interpreter not found: {sys.executable}",
                 exit_code=-1,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ToolExecutionResult(
                 success=False,
-                command=" ".join(cmd),
+                command=" ".join(command_args),
                 output=f"Failed to start process: {exc}",
                 exit_code=-1,
             )
@@ -160,48 +160,55 @@ class RunService:
         timeout: int = _DEFAULT_RUN_TIMEOUT,
     ) -> ToolExecutionResult:
         """Run ``python -m <module>`` inside *cwd*."""
-        cmd = [sys.executable, "-m", module]
+        command_args = [sys.executable, "-m", module]
         try:
-            proc = subprocess.run(
-                cmd,
+            process_result = subprocess.run(
+                command_args,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
                 cwd=str(cwd),
             )
-            output = (proc.stdout + ("\n[stderr]\n" + proc.stderr if proc.stderr else "")).strip()
+            output = (
+                process_result.stdout
+                + ("\n[stderr]\n" + process_result.stderr if process_result.stderr else "")
+            ).strip()
             return ToolExecutionResult(
-                success=proc.returncode == 0,
-                command=" ".join(cmd),
+                success=process_result.returncode == 0,
+                command=" ".join(command_args),
                 output=output or "(no output)",
-                exit_code=proc.returncode,
+                exit_code=process_result.returncode,
             )
         except subprocess.TimeoutExpired:
             return ToolExecutionResult(
                 success=False,
-                command=" ".join(cmd),
+                command=" ".join(command_args),
                 output=f"Process timed out after {timeout} second(s).",
                 exit_code=-1,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ToolExecutionResult(
                 success=False,
-                command=" ".join(cmd),
+                command=" ".join(command_args),
                 output=str(exc),
                 exit_code=-1,
             )
 
 
 class BuildService:
+    """Build-system boundary used by the prototype shell."""
+
     def run_build(self, project: Project) -> ToolExecutionResult:
         return ToolExecutionResult(
             success=True,
             command="python -m compileall <project>",
-            output=f"BuildService stub: validated build configuration for {project.name}.",
+            output=f"Build service outline validated build configuration for {project.name}.",
         )
 
 
 class _PythonDebugger(bdb.Bdb):
+    """Small ``bdb`` wrapper that emits UI-friendly debugger snapshots."""
+
     def __init__(
         self,
         path: Path,
@@ -250,7 +257,7 @@ class _PythonDebugger(bdb.Bdb):
                     message="Debug session stopped.",
                 )
             )
-        except Exception:  # noqa: BLE001 - debugger reports user-code exceptions
+        except Exception:
             self.events.put(
                 DebugSnapshot(
                     status="error",
@@ -261,7 +268,7 @@ class _PythonDebugger(bdb.Bdb):
         finally:
             os.chdir(old_cwd)
 
-    def user_line(self, frame) -> None:  # noqa: ANN001, N802 - bdb callback
+    def user_line(self, frame) -> None:
         filename = Path(frame.f_code.co_filename).resolve()
         if filename != self.path:
             return
@@ -279,8 +286,9 @@ class _PythonDebugger(bdb.Bdb):
         else:
             self.set_step()
 
-    def user_exception(self, frame, exc_info) -> None:  # noqa: ANN001, N802 - bdb callback
-        exc_type, exc_value, _ = exc_info
+    def user_exception(self, frame, exc_info) -> None:
+        exc_type = exc_info[0]
+        exc_value = exc_info[1]
         self.events.put(
             self._snapshot(
                 frame,
@@ -296,7 +304,7 @@ class _PythonDebugger(bdb.Bdb):
         else:
             self.set_step()
 
-    def _snapshot(self, frame, status: str, message: str) -> DebugSnapshot:  # noqa: ANN001
+    def _snapshot(self, frame, status: str, message: str) -> DebugSnapshot:
         stack: list[DebugFrameSnapshot] = []
         current = frame
         while current is not None:
@@ -328,7 +336,7 @@ class _PythonDebugger(bdb.Bdb):
     def _safe_repr(value: object) -> str:
         try:
             text = repr(value)
-        except Exception:  # noqa: BLE001
+        except Exception:
             text = "<unrepresentable>"
         return text if len(text) <= 160 else text[:157] + "..."
 
@@ -413,60 +421,63 @@ class VCSService:
     """Thin Git adapter used by the IDE shell."""
 
     def status(self, project: Project) -> ToolExecutionResult:
-        return self._git(project, ["status", "--short", "--branch"])
+        return self._run_git_command(project, ["status", "--short", "--branch"])
 
     def diff(self, project: Project) -> ToolExecutionResult:
-        return self._git(project, ["diff", "--"])
+        return self._run_git_command(project, ["diff", "--"])
 
     def log(self, project: Project, limit: int = 20) -> ToolExecutionResult:
-        return self._git(project, ["log", f"-{limit}", "--oneline", "--decorate"])
+        return self._run_git_command(project, ["log", f"-{limit}", "--oneline", "--decorate"])
 
     def branches(self, project: Project) -> ToolExecutionResult:
-        return self._git(project, ["branch", "--all"])
+        return self._run_git_command(project, ["branch", "--all"])
 
     def add(self, project: Project, pathspec: str = ".") -> ToolExecutionResult:
-        return self._git(project, ["add", pathspec])
+        return self._run_git_command(project, ["add", pathspec])
 
     def commit(self, project: Project, message: str) -> ToolExecutionResult:
-        return self._git(project, ["commit", "-am", message])
+        return self._run_git_command(project, ["commit", "-am", message])
 
     def pull(self, project: Project) -> ToolExecutionResult:
-        return self._git(project, ["pull", "--ff-only"])
+        return self._run_git_command(project, ["pull", "--ff-only"])
 
     def push(self, project: Project) -> ToolExecutionResult:
-        return self._git(project, ["push"])
+        return self._run_git_command(project, ["push"])
 
     def merge(self, project: Project, branch: str) -> ToolExecutionResult:
-        return self._git(project, ["merge", branch])
+        return self._run_git_command(project, ["merge", branch])
 
-    def _git(self, project: Project, args: list[str]) -> ToolExecutionResult:
-        cmd = ["git", *args]
+    def _run_git_command(self, project: Project, args: list[str]) -> ToolExecutionResult:
+        command_args = ["git", *args]
         try:
-            proc = subprocess.run(
-                cmd,
+            process_result = subprocess.run(
+                command_args,
                 capture_output=True,
                 text=True,
                 timeout=30,
                 cwd=str(project.root_path),
             )
-            output = RunService._combined_output(proc.stdout, proc.stderr) or "(no output)"
+            output = RunService._combined_output(
+                process_result.stdout,
+                process_result.stderr,
+            ) or "(no output)"
             return ToolExecutionResult(
-                success=proc.returncode == 0,
-                command=" ".join(cmd),
+                success=process_result.returncode == 0,
+                command=" ".join(command_args),
                 output=output,
-                exit_code=proc.returncode,
+                exit_code=process_result.returncode,
             )
         except FileNotFoundError:
             return ToolExecutionResult(
                 success=False,
-                command=" ".join(cmd),
+                command=" ".join(command_args),
                 output="Git executable not found.",
                 exit_code=-1,
             )
         except subprocess.TimeoutExpired:
             return ToolExecutionResult(
                 success=False,
-                command=" ".join(cmd),
+                command=" ".join(command_args),
                 output="Git command timed out after 30 seconds.",
                 exit_code=-1,
             )

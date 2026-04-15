@@ -1,4 +1,4 @@
-"""Shared typed models for the IDE skeleton."""
+"""Shared typed models for the IDE prototype."""
 
 from __future__ import annotations
 
@@ -10,9 +10,6 @@ from typing import Any
 from uuid import uuid4
 
 
-# ---------------------------------------------------------------------------
-# Artefact / project core
-# ---------------------------------------------------------------------------
 
 class ArtifactType(str, Enum):
     CODE = "code"
@@ -46,9 +43,6 @@ class Project:
     project_id: str = field(default_factory=lambda: str(uuid4()))
 
 
-# ---------------------------------------------------------------------------
-# User / session
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class UserSession:
@@ -65,9 +59,6 @@ class PeerSession:
     active_artifact_name: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Editing operations / buffers
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Operation:
@@ -89,9 +80,6 @@ class TextBuffer:
         self.content = self.content[:start] + operation.text + self.content[end:]
 
 
-# ---------------------------------------------------------------------------
-# Diagnostics / analysis
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Diagnostic:
@@ -118,9 +106,6 @@ class AnalysisResult:
     snapshot: AnalysisSnapshot | None = None
 
 
-# ---------------------------------------------------------------------------
-# Test execution
-# ---------------------------------------------------------------------------
 
 class TestStatus(str, Enum):
     PASSED = "passed"
@@ -146,19 +131,19 @@ class TestSuite:
 
     @property
     def passed(self) -> int:
-        return sum(1 for c in self.cases if c.status is TestStatus.PASSED)
+        return sum(1 for test_case in self.cases if test_case.status is TestStatus.PASSED)
 
     @property
     def failed(self) -> int:
-        return sum(1 for c in self.cases if c.status is TestStatus.FAILED)
+        return sum(1 for test_case in self.cases if test_case.status is TestStatus.FAILED)
 
     @property
     def errors(self) -> int:
-        return sum(1 for c in self.cases if c.status is TestStatus.ERROR)
+        return sum(1 for test_case in self.cases if test_case.status is TestStatus.ERROR)
 
     @property
     def skipped(self) -> int:
-        return sum(1 for c in self.cases if c.status is TestStatus.SKIPPED)
+        return sum(1 for test_case in self.cases if test_case.status is TestStatus.SKIPPED)
 
 
 @dataclass
@@ -170,24 +155,21 @@ class TestRunResult:
 
     @property
     def total_passed(self) -> int:
-        return sum(s.passed for s in self.suites)
+        return sum(suite.passed for suite in self.suites)
 
     @property
     def total_failed(self) -> int:
-        return sum(s.failed for s in self.suites)
+        return sum(suite.failed for suite in self.suites)
 
     @property
     def total_errors(self) -> int:
-        return sum(s.errors for s in self.suites)
+        return sum(suite.errors for suite in self.suites)
 
     @property
     def total_skipped(self) -> int:
-        return sum(s.skipped for s in self.suites)
+        return sum(suite.skipped for suite in self.suites)
 
 
-# ---------------------------------------------------------------------------
-# Design-to-implementation traceability
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class TraceLink:
@@ -199,9 +181,6 @@ class TraceLink:
     description: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Comments / annotations
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Comment:
@@ -213,9 +192,6 @@ class Comment:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-# ---------------------------------------------------------------------------
-# Version history
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class Revision:
@@ -227,9 +203,6 @@ class Revision:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-# ---------------------------------------------------------------------------
-# Collaboration / sync
-# ---------------------------------------------------------------------------
 
 class SyncStatus(str, Enum):
     IDLE = "idle"
@@ -239,9 +212,6 @@ class SyncStatus(str, Enum):
     ERROR = "error"
 
 
-# ---------------------------------------------------------------------------
-# Build / tool execution
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class ToolExecutionResult:
@@ -251,9 +221,6 @@ class ToolExecutionResult:
     exit_code: int = 0
 
 
-# ---------------------------------------------------------------------------
-# Debugging
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class DebugFrameSnapshot:
@@ -274,9 +241,6 @@ class DebugSnapshot:
     message: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Plugins
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class PluginMetadata:

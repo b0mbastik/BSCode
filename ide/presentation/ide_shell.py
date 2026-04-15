@@ -53,14 +53,11 @@ if TYPE_CHECKING:
     from ide.app.application import IDEApplication
 
 
-# ---------------------------------------------------------------------------
-# Helper dialogs
-# ---------------------------------------------------------------------------
 
 class _AddCommentDialog(QDialog):
     def __init__(self, parent: QWidget, artifact_name: str, author: str) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Add Comment — {artifact_name}")
+        self.setWindowTitle(f"Add Comment - {artifact_name}")
         self.setMinimumWidth(400)
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -68,7 +65,7 @@ class _AddCommentDialog(QDialog):
         self.line_edit.setAccessibleName("Line number input")
         self.body_edit = QPlainTextEdit()
         self.body_edit.setAccessibleName("Comment body input")
-        self.body_edit.setPlaceholderText("Enter your comment …")
+        self.body_edit.setPlaceholderText("Enter your comment...")
         self.body_edit.setFixedHeight(90)
         form.addRow("Line:", self.line_edit)
         form.addRow("Author:", QLabel(author))
@@ -124,9 +121,6 @@ class _AddTraceLinkDialog(QDialog):
         layout.addWidget(buttons)
 
 
-# ---------------------------------------------------------------------------
-# Main shell
-# ---------------------------------------------------------------------------
 
 class IDEShell(QMainWindow):
     def __init__(self, application: IDEApplication) -> None:
@@ -142,7 +136,6 @@ class IDEShell(QMainWindow):
         self.resize(1400, 900)
         self.setAccessibleName("Architecture Driven Collaborative IDE main window")
 
-        # Debounce timers
         self.analysis_timer = QTimer(self)
         self.analysis_timer.setSingleShot(True)
         self.analysis_timer.timeout.connect(lambda: self._run_static_analysis(add_output=False))
@@ -156,19 +149,15 @@ class IDEShell(QMainWindow):
         self._build_ui()
         self._apply_initial_layout()
 
-        # Sync status from the network layer.
         self.application.network_sync.add_status_listener(self._on_sync_status_changed)
         self.debug_timer.start(150)
         self.filesystem_timer.start(2500)
 
-        self.statusBar().showMessage("Desktop IDE shell ready.  Press F1 for help.")
+        self.statusBar().showMessage("Desktop IDE shell ready. Press F1 for help.")
         self._refresh_project_selector()
         self.refresh_project_explorer()
         self._load_diagrams_for_active_project()
 
-    # ------------------------------------------------------------------
-    # UI construction
-    # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
         self._create_actions()
@@ -181,17 +170,16 @@ class IDEShell(QMainWindow):
         self._create_status_bar()
 
     def _create_actions(self) -> None:
-        # File
         self.new_project_action = QAction("New Project", self)
         self.new_project_action.setToolTip("Create a new empty project")
         self.new_project_action.triggered.connect(self.new_project)
 
-        self.open_project_action = QAction("Open Project…", self)
+        self.open_project_action = QAction("Open Project...", self)
         self.open_project_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
         self.open_project_action.setToolTip("Open a folder as a project (Ctrl+Shift+O)")
         self.open_project_action.triggered.connect(self.open_project)
 
-        self.open_file_action = QAction("Open File…", self)
+        self.open_file_action = QAction("Open File...", self)
         self.open_file_action.setShortcut(QKeySequence("Ctrl+O"))
         self.open_file_action.setToolTip("Open a single file (Ctrl+O)")
         self.open_file_action.triggered.connect(self.open_file)
@@ -206,19 +194,19 @@ class IDEShell(QMainWindow):
         self.close_tab_action.setToolTip("Close the current editor tab (Ctrl+W)")
         self.close_tab_action.triggered.connect(self._close_active_tab)
 
-        self.version_history_action = QAction("Version History…", self)
+        self.version_history_action = QAction("Version History...", self)
         self.version_history_action.setToolTip("Show revision history for the active file")
         self.version_history_action.triggered.connect(self.show_version_history)
 
-        self.new_file_action = QAction("New File…", self)
+        self.new_file_action = QAction("New File...", self)
         self.new_file_action.setToolTip("Create a new file in the selected project folder")
         self.new_file_action.triggered.connect(self.create_project_file)
 
-        self.new_folder_action = QAction("New Folder…", self)
+        self.new_folder_action = QAction("New Folder...", self)
         self.new_folder_action.setToolTip("Create a new folder in the selected project folder")
         self.new_folder_action.triggered.connect(self.create_project_folder)
 
-        self.rename_project_item_action = QAction("Rename…", self)
+        self.rename_project_item_action = QAction("Rename...", self)
         self.rename_project_item_action.triggered.connect(self.rename_project_item)
 
         self.copy_project_item_action = QAction("Copy", self)
@@ -230,18 +218,16 @@ class IDEShell(QMainWindow):
         self.refresh_project_action = QAction("Refresh Explorer", self)
         self.refresh_project_action.triggered.connect(self.refresh_project_from_disk)
 
-        # Edit
-        self.find_in_project_action = QAction("Find in Project…", self)
+        self.find_in_project_action = QAction("Find in Project...", self)
         self.find_in_project_action.setShortcut(QKeySequence("Ctrl+Shift+F"))
         self.find_in_project_action.setToolTip("Search all artefacts in the project (Ctrl+Shift+F)")
         self.find_in_project_action.triggered.connect(self.show_search_bar)
 
-        self.complete_action = QAction("Code Completion…", self)
+        self.complete_action = QAction("Code Completion...", self)
         self.complete_action.setShortcut(QKeySequence("Ctrl+Space"))
         self.complete_action.setToolTip("Show language-service completion candidates (Ctrl+Space)")
         self.complete_action.triggered.connect(self.show_code_completion)
 
-        # Run
         self.run_file_action = QAction("Run Active File", self)
         self.run_file_action.setShortcut(QKeySequence("F5"))
         self.run_file_action.setToolTip(
@@ -277,7 +263,6 @@ class IDEShell(QMainWindow):
         self.debug_stop_action.setToolTip("Stop the active debug session")
         self.debug_stop_action.triggered.connect(self.debug_stop)
 
-        # Analyse
         self.static_analysis_action = QAction("Run Static Analysis", self)
         self.static_analysis_action.setShortcut(QKeySequence("Ctrl+Shift+A"))
         self.static_analysis_action.setToolTip("Run static analysis on all project artefacts (Ctrl+Shift+A)")
@@ -309,7 +294,6 @@ class IDEShell(QMainWindow):
         self.show_bottom_panel_action.setCheckable(True)
         self.show_bottom_panel_action.setChecked(True)
 
-        # VCS
         self.git_status_action = QAction("Status", self)
         self.git_status_action.triggered.connect(self.git_status)
 
@@ -322,7 +306,7 @@ class IDEShell(QMainWindow):
         self.git_branches_action = QAction("Branches", self)
         self.git_branches_action.triggered.connect(self.git_branches)
 
-        self.git_add_action = QAction("Add / Stage…", self)
+        self.git_add_action = QAction("Add / Stage...", self)
         self.git_add_action.triggered.connect(self.git_add)
 
         self.commit_action = QAction("Commit", self)
@@ -335,11 +319,10 @@ class IDEShell(QMainWindow):
         self.git_push_action = QAction("Push", self)
         self.git_push_action.triggered.connect(self.git_push)
 
-        self.git_merge_action = QAction("Merge Branch…", self)
+        self.git_merge_action = QAction("Merge Branch...", self)
         self.git_merge_action.triggered.connect(self.git_merge)
 
-        # Help
-        self.help_topics_action = QAction("Help Topics…", self)
+        self.help_topics_action = QAction("Help Topics...", self)
         self.help_topics_action.setShortcut(QKeySequence("F1"))
         self.help_topics_action.setToolTip("Open the help topics browser (F1)")
         self.help_topics_action.triggered.connect(self.show_help_topics)
@@ -450,11 +433,10 @@ class IDEShell(QMainWindow):
         toolbar.addWidget(self.project_selector)
         toolbar.addSeparator()
 
-        # Inline search field
         search_label = QLabel("  Find: ")
         search_label.setAccessibleName("Project search label")
         self.search_field = QLineEdit()
-        self.search_field.setPlaceholderText("Search project…")
+        self.search_field.setPlaceholderText("Search project...")
         self.search_field.setMaximumWidth(220)
         self.search_field.setAccessibleName("Project search field")
         self.search_field.setToolTip("Type and press Enter to search all project artefacts (Ctrl+Shift+F)")
@@ -471,7 +453,7 @@ class IDEShell(QMainWindow):
         self.tabs.setAccessibleName("Editor tabs")
         self.diagram_canvas = DiagramCanvas()
         self.tabs.addTab(self.diagram_canvas, "Design")
-        # Design tab is permanent — remove its close button.
+        # The Design tab is permanent.
         self.tabs.tabBar().setTabButton(0, self.tabs.tabBar().ButtonPosition.RightSide, None)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self.tabs.tabCloseRequested.connect(self._on_tab_close_requested)
@@ -495,7 +477,6 @@ class IDEShell(QMainWindow):
         self.project_dock.visibilityChanged.connect(self.show_project_explorer_action.setChecked)
 
     def _create_right_docks(self) -> None:
-        # --- Collaboration ---
         self.collab_ui = CollabUI()
         self.collab_ui.set_peers(self.application.collab_service.peers)
         self.collab_dock = QDockWidget("Collaboration", self)
@@ -506,7 +487,6 @@ class IDEShell(QMainWindow):
         self.show_collaboration_action.triggered.connect(self.collab_dock.setVisible)
         self.collab_dock.visibilityChanged.connect(self.show_collaboration_action.setChecked)
 
-        # --- Comments ---
         comments_widget = QWidget()
         comments_layout = QVBoxLayout(comments_widget)
         comments_layout.setContentsMargins(4, 4, 4, 4)
@@ -514,7 +494,7 @@ class IDEShell(QMainWindow):
         self.comments_tree.setHeaderLabels(["Line", "Author", "Comment"])
         self.comments_tree.setAccessibleName("Comments list")
         self.comments_tree.setToolTip("Inline annotations on the active artefact.")
-        add_comment_btn = QPushButton("Add Comment…")
+        add_comment_btn = QPushButton("Add Comment...")
         add_comment_btn.setToolTip("Add an annotation to the active artefact")
         add_comment_btn.setAccessibleName("Add comment button")
         add_comment_btn.clicked.connect(self.add_comment)
@@ -529,7 +509,6 @@ class IDEShell(QMainWindow):
         self.comments_dock.visibilityChanged.connect(self.show_comments_action.setChecked)
         self.tabifyDockWidget(self.collab_dock, self.comments_dock)
 
-        # --- Traceability ---
         trace_widget = QWidget()
         trace_layout = QVBoxLayout(trace_widget)
         trace_layout.setContentsMargins(4, 4, 4, 4)
@@ -540,7 +519,7 @@ class IDEShell(QMainWindow):
         trace_btn_row = QWidget()
         trace_btn_layout = QHBoxLayout(trace_btn_row)
         trace_btn_layout.setContentsMargins(0, 0, 0, 0)
-        add_link_btn = QPushButton("Add Link…")
+        add_link_btn = QPushButton("Add Link...")
         add_link_btn.setToolTip("Create a new traceability link")
         add_link_btn.setAccessibleName("Add trace link button")
         add_link_btn.clicked.connect(self.add_trace_link)
@@ -567,21 +546,18 @@ class IDEShell(QMainWindow):
         self.bottom_tabs = QTabWidget()
         self.bottom_tabs.setAccessibleName("Diagnostics and output panel tabs")
 
-        # Diagnostics
         self.diagnostics_tree = QTreeWidget()
         self.diagnostics_tree.setHeaderLabels(["Severity", "Line", "Source", "Message"])
         self.diagnostics_tree.setAccessibleName("Diagnostics panel")
         self.diagnostics_tree.setToolTip("Static analysis and conformance diagnostics.")
         self.bottom_tabs.addTab(self.diagnostics_tree, "Diagnostics")
 
-        # Test Results
         self.test_results_tree = QTreeWidget()
         self.test_results_tree.setHeaderLabels(["Test / Suite", "Status", "Duration (ms)", "Message"])
         self.test_results_tree.setAccessibleName("Test results panel")
         self.test_results_tree.setToolTip("Results from the most recent test run.")
         self.bottom_tabs.addTab(self.test_results_tree, "Test Results")
 
-        # Search Results
         self.search_results_tree = QTreeWidget()
         self.search_results_tree.setHeaderLabels(["Artefact", "Line", "Col", "Context"])
         self.search_results_tree.setAccessibleName("Search results panel")
@@ -589,14 +565,12 @@ class IDEShell(QMainWindow):
         self.search_results_tree.itemDoubleClicked.connect(self._navigate_to_search_result)
         self.bottom_tabs.addTab(self.search_results_tree, "Search Results")
 
-        # Output
         self.output_view = QPlainTextEdit()
         self.output_view.setReadOnly(True)
         self.output_view.setAccessibleName("Output panel")
         self.output_view.setToolTip("Build, VCS, and other tool output.")
         self.bottom_tabs.addTab(self.output_view, "Output")
 
-        # Debugger
         debug_widget = QWidget()
         debug_layout = QVBoxLayout(debug_widget)
         debug_layout.setContentsMargins(4, 4, 4, 4)
@@ -615,11 +589,11 @@ class IDEShell(QMainWindow):
             self.debug_continue_action,
             self.debug_stop_action,
         ):
-            btn = QPushButton(action.text())
-            btn.setToolTip(action.toolTip())
-            btn.setAccessibleName(f"Debugger {action.text()} button")
-            btn.clicked.connect(action.trigger)
-            debug_controls_layout.addWidget(btn)
+            debug_button = QPushButton(action.text())
+            debug_button.setToolTip(action.toolTip())
+            debug_button.setAccessibleName(f"Debugger {action.text()} button")
+            debug_button.clicked.connect(action.trigger)
+            debug_controls_layout.addWidget(debug_button)
         debug_layout.addWidget(debug_controls)
 
         self.debug_stack_tree = QTreeWidget()
@@ -647,15 +621,15 @@ class IDEShell(QMainWindow):
         self.bottom_dock.visibilityChanged.connect(self.show_bottom_panel_action.setChecked)
 
     def _create_status_bar(self) -> None:
-        sb = QStatusBar(self)
-        self.setStatusBar(sb)
+        status_bar = QStatusBar(self)
+        self.setStatusBar(status_bar)
 
         self.sync_status_label = QLabel("Sync: idle")
         self.sync_status_label.setAccessibleName("Network synchronisation status indicator")
         self.sync_status_label.setToolTip(
             "Current collaboration sync status: idle / pending / syncing / conflict / error"
         )
-        sb.addPermanentWidget(self.sync_status_label)
+        status_bar.addPermanentWidget(self.sync_status_label)
 
     def _apply_initial_layout(self) -> None:
         """Keep the bottom dock useful without letting it dominate startup."""
@@ -670,9 +644,6 @@ class IDEShell(QMainWindow):
             Qt.Orientation.Horizontal,
         )
 
-    # ------------------------------------------------------------------
-    # File / project actions
-    # ------------------------------------------------------------------
 
     def new_project(self) -> None:
         name, accepted = QInputDialog.getText(self, "New Project", "Project name:")
@@ -704,7 +675,8 @@ class IDEShell(QMainWindow):
         root = ""
         if self.application.project_manager.active_project:
             root = str(self.application.project_manager.active_project.root_path)
-        path, _ = QFileDialog.getOpenFileName(self, "Open File", root, "All Files (*.*)")
+        file_dialog_result = QFileDialog.getOpenFileName(self, "Open File", root, "All Files (*.*)")
+        path = file_dialog_result[0]
         if not path:
             return
         artifact = self.application.open_file(Path(path))
@@ -715,12 +687,12 @@ class IDEShell(QMainWindow):
         self.open_artifact(artifact)
 
     def save_active_artifact(self) -> None:
-        # Design tab active — save all diagram types.
+        # Design tab active: save all diagram types.
         if self.tabs.currentWidget() is self.diagram_canvas:
             self._save_diagrams()
             return
 
-        # Code editor active — save the file.
+        # Code editor active: save the file.
         if self.active_editor is None:
             self.statusBar().showMessage("No active editor to save.")
             return
@@ -734,13 +706,10 @@ class IDEShell(QMainWindow):
         self.statusBar().showMessage(f"Saved {label}  [checkpoint created]")
 
     def _close_active_tab(self) -> None:
-        idx = self.tabs.currentIndex()
-        if idx >= 0:
-            self._on_tab_close_requested(idx)
+        tab_index = self.tabs.currentIndex()
+        if tab_index >= 0:
+            self._on_tab_close_requested(tab_index)
 
-    # ------------------------------------------------------------------
-    # Project explorer file operations
-    # ------------------------------------------------------------------
 
     def create_project_file(self) -> None:
         directory = self._selected_directory()
@@ -816,7 +785,7 @@ class IDEShell(QMainWindow):
         self.refresh_project_explorer()
         self._last_file_snapshot = self._filesystem_snapshot()
 
-    def _show_project_context_menu(self, pos) -> None:  # noqa: ANN001
+    def _show_project_context_menu(self, pos) -> None:
         self.project_tree.setCurrentItem(self.project_tree.itemAt(pos))
         menu = QMenu(self)
         menu.addAction(self.new_file_action)
@@ -835,8 +804,8 @@ class IDEShell(QMainWindow):
         if item is None:
             project = self.application.project_manager.active_project
             return project.root_path if project is not None else None
-        raw = item.data(0, Qt.ItemDataRole.UserRole)
-        return Path(raw) if raw else None
+        stored_path = item.data(0, Qt.ItemDataRole.UserRole)
+        return Path(stored_path) if stored_path else None
 
     def _selected_directory(self) -> Path | None:
         path = self._selected_path()
@@ -866,11 +835,8 @@ class IDEShell(QMainWindow):
             return
         result = self.application.build_service.run_build(project)
         self.output_view.appendPlainText(f"$ {result.command}\n{result.output}")
-        self.statusBar().showMessage("Build stub completed.")
+        self.statusBar().showMessage("Build outline completed.")
 
-    # ------------------------------------------------------------------
-    # Debugger
-    # ------------------------------------------------------------------
 
     def start_debugging(self) -> None:
         if self.active_editor is None or self.active_editor.artifact.path is None:
@@ -929,21 +895,18 @@ class IDEShell(QMainWindow):
 
     def _parse_breakpoints(self) -> set[int]:
         breakpoints: set[int] = set()
-        for raw in self.breakpoint_field.text().replace(";", ",").split(","):
-            raw = raw.strip()
-            if not raw:
+        for breakpoint_text in self.breakpoint_field.text().replace(";", ",").split(","):
+            breakpoint_text = breakpoint_text.strip()
+            if not breakpoint_text:
                 continue
             try:
-                line = int(raw)
+                line = int(breakpoint_text)
             except ValueError:
                 continue
             if line > 0:
                 breakpoints.add(line)
         return breakpoints
 
-    # ------------------------------------------------------------------
-    # VCS
-    # ------------------------------------------------------------------
 
     def git_status(self) -> None:
         self._run_vcs_command("status")
@@ -1002,7 +965,7 @@ class IDEShell(QMainWindow):
         self._show_tool_result(result, f"Git {command}")
 
     def _show_tool_result(self, result, label: str) -> None:
-        self.output_view.appendPlainText(f"\n{'─' * 60}")
+        self.output_view.appendPlainText(f"\n{'-' * 60}")
         self.output_view.appendPlainText(f"$ {result.command}\n{result.output}")
         self.bottom_tabs.setCurrentWidget(self.output_view)
         status = "completed" if result.success else f"failed ({result.exit_code})"
@@ -1013,15 +976,12 @@ class IDEShell(QMainWindow):
             self,
             "About",
             "Architecture Driven Collaborative IDE\n\n"
-            "Desktop shell prototype — Python language support, multi-type "
+            "Desktop shell prototype with Python language support, multi-type "
             "diagram canvas, test runner, project search, version history, "
             "design traceability, and collaboration presence.\n\n"
             "Press F1 for help topics.",
         )
 
-    # ------------------------------------------------------------------
-    # Run file
-    # ------------------------------------------------------------------
 
     def run_active_file(self) -> None:
         """Save the active file then execute it with the system Python interpreter."""
@@ -1032,7 +992,7 @@ class IDEShell(QMainWindow):
         artifact = self.active_editor.artifact
 
         if artifact.path is None:
-            self.statusBar().showMessage("Cannot run an in-memory artefact — save it to disk first.")
+            self.statusBar().showMessage("Cannot run an in-memory artefact; save it to disk first.")
             return
 
         if artifact.path.suffix.lower() not in (".py", ".java"):
@@ -1041,14 +1001,13 @@ class IDEShell(QMainWindow):
             )
             return
 
-        # Auto-save before running so the interpreter sees the latest edits.
         self.application.artifact_store.save(artifact)
 
         project = self.application.project_manager.active_project
         cwd = project.root_path if project else artifact.path.parent
 
-        self.statusBar().showMessage(f"Running {artifact.path.name}…")
-        self.output_view.appendPlainText(f"\n{'─' * 60}")
+        self.statusBar().showMessage(f"Running {artifact.path.name}...")
+        self.output_view.appendPlainText(f"\n{'-' * 60}")
         if artifact.path.suffix.lower() == ".java":
             self.output_view.appendPlainText(f"$ javac/java {artifact.path}")
         else:
@@ -1062,19 +1021,16 @@ class IDEShell(QMainWindow):
 
         self.output_view.appendPlainText(result.output)
         self.output_view.appendPlainText(
-            f"{'─' * 60}\nProcess exited with code {result.exit_code}"
+            f"{'-' * 60}\nProcess exited with code {result.exit_code}"
         )
 
         if result.success:
             self.statusBar().showMessage(f"{artifact.path.name} finished (exit 0).")
         else:
             self.statusBar().showMessage(
-                f"{artifact.path.name} exited with code {result.exit_code} — see Output panel."
+                f"{artifact.path.name} exited with code {result.exit_code}; see Output panel."
             )
 
-    # ------------------------------------------------------------------
-    # Test runner
-    # ------------------------------------------------------------------
 
     def run_tests(self) -> None:
         project = self.application.project_manager.active_project
@@ -1088,7 +1044,6 @@ class IDEShell(QMainWindow):
         self._render_test_results(result)
         self.bottom_tabs.setCurrentWidget(self.test_results_tree)
 
-        # Feed results into dynamic analysis.
         dyn_result = self.application.analysis_manager.run_dynamic_analysis_from_tests(result)
         if dyn_result.diagnostics:
             self._last_diagnostics.extend(dyn_result.diagnostics)
@@ -1097,7 +1052,7 @@ class IDEShell(QMainWindow):
                 self.active_editor.render_diagnostics(self._last_diagnostics)
             self.output_view.appendPlainText(dyn_result.summary)
 
-        icon = "✓" if result.success else "✗"
+        icon = "OK" if result.success else "FAIL"
         self.statusBar().showMessage(
             f"{icon} Tests: {result.total_passed} passed, "
             f"{result.total_failed} failed, {result.total_errors} errors"
@@ -1106,7 +1061,7 @@ class IDEShell(QMainWindow):
     def _render_test_results(self, result) -> None:
         self.test_results_tree.clear()
         for suite in result.suites:
-            suite_icon = "✓" if suite.failed == 0 and suite.errors == 0 else "✗"
+            suite_icon = "OK" if suite.failed == 0 and suite.errors == 0 else "FAIL"
             suite_item = QTreeWidgetItem([
                 f"{suite_icon} {suite.name}",
                 f"{suite.passed}P / {suite.failed}F / {suite.errors}E / {suite.skipped}S",
@@ -1116,7 +1071,10 @@ class IDEShell(QMainWindow):
             self.test_results_tree.addTopLevelItem(suite_item)
             for case in suite.cases:
                 status_icons = {
-                    "passed": "✓", "failed": "✗", "error": "!", "skipped": "—",
+                    "passed": "OK",
+                    "failed": "FAIL",
+                    "error": "ERROR",
+                    "skipped": "SKIP",
                 }
                 icon = status_icons.get(case.status.value, "?")
                 case_item = QTreeWidgetItem([
@@ -1128,9 +1086,6 @@ class IDEShell(QMainWindow):
                 suite_item.addChild(case_item)
             suite_item.setExpanded(suite.failed > 0 or suite.errors > 0)
 
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
 
     def show_search_bar(self) -> None:
         self.search_field.setFocus()
@@ -1167,27 +1122,26 @@ class IDEShell(QMainWindow):
         results = self.application.search_service.search(query, artifacts)
 
         self.search_results_tree.clear()
-        for r in results:
+        for result_item in results:
             self.search_results_tree.addTopLevelItem(
                 QTreeWidgetItem([
-                    r.artifact_name,
-                    str(r.line),
-                    str(r.column),
-                    r.context,
+                    result_item.artifact_name,
+                    str(result_item.line),
+                    str(result_item.column),
+                    result_item.context,
                 ])
             )
-            # Store artifact_id + line for navigation.
             item = self.search_results_tree.topLevelItem(
                 self.search_results_tree.topLevelItemCount() - 1
             )
-            if r.artifact_id.startswith("design:"):
+            if result_item.artifact_id.startswith("design:"):
                 item.setData(
                     0,
                     Qt.ItemDataRole.UserRole,
-                    ("diagram", r.artifact_id.removeprefix("design:"), r.line),
+                    ("diagram", result_item.artifact_id.removeprefix("design:"), result_item.line),
                 )
             else:
-                item.setData(0, Qt.ItemDataRole.UserRole, ("artifact", r.artifact_id, r.line))
+                item.setData(0, Qt.ItemDataRole.UserRole, ("artifact", result_item.artifact_id, result_item.line))
 
         self.bottom_tabs.setCurrentWidget(self.search_results_tree)
         self.statusBar().showMessage(
@@ -1212,40 +1166,36 @@ class IDEShell(QMainWindow):
         return artifacts + design_artifacts
 
     def _navigate_to_search_result(self, item: QTreeWidgetItem) -> None:
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data is None:
+        result_data = item.data(0, Qt.ItemDataRole.UserRole)
+        if result_data is None:
             return
-        if len(data) == 2:
-            kind, target, line = "artifact", data[0], data[1]
+        if len(result_data) == 2:
+            result_kind, target_identifier, line_number = "artifact", result_data[0], result_data[1]
         else:
-            kind, target, line = data
-        if kind == "diagram":
+            result_kind, target_identifier, line_number = result_data
+        if result_kind == "diagram":
             self.tabs.setCurrentWidget(self.diagram_canvas)
-            self.diagram_canvas.set_current_diagram(str(target))
-            editor = self.diagram_canvas.get_editor(str(target))
+            self.diagram_canvas.set_current_diagram(str(target_identifier))
+            editor = self.diagram_canvas.get_editor(str(target_identifier))
             if editor is not None:
-                block = editor.document().findBlockByLineNumber(max(0, int(line) - 1))
+                block = editor.document().findBlockByLineNumber(max(0, int(line_number) - 1))
                 cursor = editor.textCursor()
                 cursor.setPosition(block.position())
                 editor.setTextCursor(cursor)
                 editor.ensureCursorVisible()
             return
-        artifact_id = str(target)
+        artifact_id = str(target_identifier)
         artifact = self.application.artifact_store.load(artifact_id)
         if artifact is None:
             return
         self.open_artifact(artifact)
-        # Scroll to line in the editor.
         if self.active_editor:
-            block = self.active_editor.editor.document().findBlockByLineNumber(max(0, line - 1))
+            block = self.active_editor.editor.document().findBlockByLineNumber(max(0, line_number - 1))
             cursor = self.active_editor.editor.textCursor()
             cursor.setPosition(block.position())
             self.active_editor.editor.setTextCursor(cursor)
             self.active_editor.editor.ensureCursorVisible()
 
-    # ------------------------------------------------------------------
-    # Help
-    # ------------------------------------------------------------------
 
     def show_help_topics(self) -> None:
         dialog = QDialog(self)
@@ -1266,15 +1216,19 @@ class IDEShell(QMainWindow):
 
         topics = self.application.help_service.all_topics()
         for topic in topics:
-            item = QTreeWidgetItem([topic.title])
-            item.setData(0, Qt.ItemDataRole.UserRole, topic.topic_id)
-            topic_list.addTopLevelItem(item)
+            topic_item = QTreeWidgetItem([topic.title])
+            topic_item.setData(0, Qt.ItemDataRole.UserRole, topic.topic_id)
+            topic_list.addTopLevelItem(topic_item)
 
-        def _show_topic(item: QTreeWidgetItem) -> None:
-            tid = item.data(0, Qt.ItemDataRole.UserRole)
-            t = self.application.help_service.get_topic(tid)
-            if t:
-                content_view.setPlainText(f"{t.title}\n{'=' * len(t.title)}\n\n{t.content}")
+        def _show_topic(selected_item: QTreeWidgetItem) -> None:
+            topic_id = selected_item.data(0, Qt.ItemDataRole.UserRole)
+            selected_topic = self.application.help_service.get_topic(topic_id)
+            if selected_topic:
+                content_view.setPlainText(
+                    f"{selected_topic.title}\n"
+                    f"{'=' * len(selected_topic.title)}\n\n"
+                    f"{selected_topic.content}"
+                )
 
         topic_list.itemClicked.connect(_show_topic)
         if topic_list.topLevelItemCount() > 0:
@@ -1301,13 +1255,10 @@ class IDEShell(QMainWindow):
         topic = self.application.help_service.get_contextual_help(context)
         QMessageBox.information(
             self,
-            f"Help — {topic.title}",
+            f"Help - {topic.title}",
             topic.content,
         )
 
-    # ------------------------------------------------------------------
-    # Version history
-    # ------------------------------------------------------------------
 
     def show_version_history(self) -> None:
         if self.active_editor is None:
@@ -1317,7 +1268,7 @@ class IDEShell(QMainWindow):
         revisions = self.application.version_service.get_history(artifact.artifact_id)
 
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Version History — {artifact.name}")
+        dialog.setWindowTitle(f"Version History - {artifact.name}")
         dialog.setMinimumSize(700, 400)
         dialog.setAccessibleName("Version history dialog")
         layout = QVBoxLayout(dialog)
@@ -1329,47 +1280,47 @@ class IDEShell(QMainWindow):
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.horizontalHeader().setStretchLastSection(True)
 
-        for i, rev in enumerate(revisions):
-            table.setItem(i, 0, QTableWidgetItem(rev.revision_id[:8]))
-            table.setItem(i, 1, QTableWidgetItem(rev.author))
-            table.setItem(i, 2, QTableWidgetItem(rev.timestamp.strftime("%Y-%m-%d %H:%M:%S")))
-            table.setItem(i, 3, QTableWidgetItem(rev.message))
-            for col in range(4):
-                if item := table.item(i, col):
-                    item.setData(Qt.ItemDataRole.UserRole, rev.revision_id)
+        for row_index, revision in enumerate(revisions):
+            table.setItem(row_index, 0, QTableWidgetItem(revision.revision_id[:8]))
+            table.setItem(row_index, 1, QTableWidgetItem(revision.author))
+            table.setItem(row_index, 2, QTableWidgetItem(revision.timestamp.strftime("%Y-%m-%d %H:%M:%S")))
+            table.setItem(row_index, 3, QTableWidgetItem(revision.message))
+            for column_index in range(4):
+                if table_item := table.item(row_index, column_index):
+                    table_item.setData(Qt.ItemDataRole.UserRole, revision.revision_id)
 
         layout.addWidget(QLabel(f"{len(revisions)} checkpoint(s) for {artifact.name}"))
         layout.addWidget(table)
 
-        btn_row = QHBoxLayout()
+        button_row = QHBoxLayout()
         restore_btn = QPushButton("Restore Selected")
         restore_btn.setToolTip("Restore the active file to the selected revision")
         restore_btn.setAccessibleName("Restore revision button")
         close_btn = QPushButton("Close")
-        btn_row.addWidget(restore_btn)
-        btn_row.addStretch()
-        btn_row.addWidget(close_btn)
-        layout.addLayout(btn_row)
+        button_row.addWidget(restore_btn)
+        button_row.addStretch()
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
 
         def _restore() -> None:
-            rows = table.selectionModel().selectedRows()
-            if not rows:
+            selected_rows = table.selectionModel().selectedRows()
+            if not selected_rows:
                 return
-            rev_id = table.item(rows[0].row(), 0).data(Qt.ItemDataRole.UserRole)
-            rev = next((r for r in revisions if r.revision_id == rev_id), None)
-            if rev and self.active_editor:
-                self.active_editor.artifact.content = rev.content
-                self.active_editor.editor.setPlainText(rev.content)
-                self.statusBar().showMessage(f"Restored {artifact.name} to revision {rev_id[:8]}.")
+            revision_id = table.item(selected_rows[0].row(), 0).data(Qt.ItemDataRole.UserRole)
+            selected_revision = next(
+                (revision for revision in revisions if revision.revision_id == revision_id),
+                None,
+            )
+            if selected_revision and self.active_editor:
+                self.active_editor.artifact.content = selected_revision.content
+                self.active_editor.editor.setPlainText(selected_revision.content)
+                self.statusBar().showMessage(f"Restored {artifact.name} to revision {revision_id[:8]}.")
             dialog.accept()
 
         restore_btn.clicked.connect(_restore)
         close_btn.clicked.connect(dialog.accept)
         dialog.exec()
 
-    # ------------------------------------------------------------------
-    # Comments
-    # ------------------------------------------------------------------
 
     def add_comment(self) -> None:
         if self.active_editor is None:
@@ -1378,19 +1329,19 @@ class IDEShell(QMainWindow):
         artifact = self.active_editor.artifact
         session = self.application.session_manager.current_session
         author = session.display_name if session else "Anonymous"
-        dlg = _AddCommentDialog(self, artifact.name, author)
-        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.body:
+        dialog = _AddCommentDialog(self, artifact.name, author)
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.body:
             return
         comment = Comment(
             artifact_id=artifact.artifact_id,
-            line=dlg.line_number,
+            line=dialog.line_number,
             author=author,
-            body=dlg.body,
+            body=dialog.body,
         )
         self.application.comment_service.add_comment(comment)
         self.application.persist_project_state()
         self._refresh_comments(artifact.artifact_id)
-        self.statusBar().showMessage(f"Comment added to {artifact.name}:{dlg.line_number}.")
+        self.statusBar().showMessage(f"Comment added to {artifact.name}:{dialog.line_number}.")
 
     def _refresh_comments(self, artifact_id: str) -> None:
         self.comments_tree.clear()
@@ -1403,27 +1354,24 @@ class IDEShell(QMainWindow):
             item.setData(0, Qt.ItemDataRole.UserRole, comment.comment_id)
             self.comments_tree.addTopLevelItem(item)
 
-    # ------------------------------------------------------------------
-    # Traceability
-    # ------------------------------------------------------------------
 
     def add_trace_link(self) -> None:
         project = self.application.project_manager.active_project
         artifact_names: list[str] = []
         if project:
             artifact_names = [
-                a.name
-                for a in self.application.artifact_store.list_for_project(project)
+                artifact.name
+                for artifact in self.application.artifact_store.list_for_project(project)
             ]
-        dlg = _AddTraceLinkDialog(self, artifact_names)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
+        dialog = _AddTraceLinkDialog(self, artifact_names)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         link = TraceLink(
-            design_artifact_id=dlg.design_artifact.text(),
-            design_element=dlg.design_element.text(),
-            code_artifact_id=dlg.code_artifact.text(),
-            code_element=dlg.code_element.text(),
-            description=dlg.description.text(),
+            design_artifact_id=dialog.design_artifact.text(),
+            design_element=dialog.design_element.text(),
+            code_artifact_id=dialog.code_artifact.text(),
+            code_element=dialog.code_element.text(),
+            description=dialog.description.text(),
         )
         self.application.traceability_service.add_link(link)
         self.application.persist_project_state()
@@ -1453,9 +1401,6 @@ class IDEShell(QMainWindow):
             item.setData(0, Qt.ItemDataRole.UserRole, link.link_id)
             self.trace_tree.addTopLevelItem(item)
 
-    # ------------------------------------------------------------------
-    # Project switching
-    # ------------------------------------------------------------------
 
     def _refresh_project_selector(self) -> None:
         self._project_selector_updating = True
@@ -1487,9 +1432,6 @@ class IDEShell(QMainWindow):
             self.output_view.appendPlainText(f"Switched project: {project.name}")
             self.statusBar().showMessage(f"Project '{project.name}' active.")
 
-    # ------------------------------------------------------------------
-    # Project explorer
-    # ------------------------------------------------------------------
 
     def refresh_project_explorer(self) -> None:
         self.project_tree.clear()
@@ -1507,25 +1449,25 @@ class IDEShell(QMainWindow):
         for artifact in artifacts:
             if artifact.path is not None:
                 try:
-                    rel = artifact.path.relative_to(project.root_path)
-                    parts = rel.parts
+                    relative_path = artifact.path.relative_to(project.root_path)
+                    path_parts = relative_path.parts
                 except ValueError:
-                    parts = (artifact.name,)
+                    path_parts = (artifact.name,)
             else:
-                parts = (artifact.name,)
+                path_parts = (artifact.name,)
 
             parent = root_item
-            for depth, part in enumerate(parts[:-1]):
-                dir_key = "/".join(parts[: depth + 1])
-                if dir_key not in dir_items:
-                    dir_node = QTreeWidgetItem([part])
-                    dir_path = project.root_path.joinpath(*parts[: depth + 1])
-                    dir_node.setData(0, Qt.ItemDataRole.UserRole, str(dir_path))
-                    parent.addChild(dir_node)
-                    dir_items[dir_key] = dir_node
-                parent = dir_items[dir_key]
+            for depth, path_part in enumerate(path_parts[:-1]):
+                directory_key = "/".join(path_parts[: depth + 1])
+                if directory_key not in dir_items:
+                    directory_item = QTreeWidgetItem([path_part])
+                    directory_path = project.root_path.joinpath(*path_parts[: depth + 1])
+                    directory_item.setData(0, Qt.ItemDataRole.UserRole, str(directory_path))
+                    parent.addChild(directory_item)
+                    dir_items[directory_key] = directory_item
+                parent = dir_items[directory_key]
 
-            file_item = QTreeWidgetItem([parts[-1]])
+            file_item = QTreeWidgetItem([path_parts[-1]])
             file_item.setData(0, Qt.ItemDataRole.UserRole, str(artifact.path or artifact.name))
             file_item.setData(0, int(Qt.ItemDataRole.UserRole) + 1, artifact.artifact_id)
             file_item.setToolTip(0, str(artifact.path or artifact.name))
@@ -1550,24 +1492,20 @@ class IDEShell(QMainWindow):
         snapshot: set[str] = set()
         for path in project.root_path.rglob("*"):
             try:
-                rel = path.relative_to(project.root_path)
+                relative_path = path.relative_to(project.root_path)
             except ValueError:
                 continue
-            if any(part in skip_dirs or part.startswith(".") for part in rel.parts[:-1]):
+            if any(part in skip_dirs or part.startswith(".") for part in relative_path.parts[:-1]):
                 continue
             if path.is_file():
-                snapshot.add(str(rel))
+                snapshot.add(str(relative_path))
         return snapshot
 
-    # ------------------------------------------------------------------
-    # Tab and editor management
-    # ------------------------------------------------------------------
 
     def _on_tab_changed(self, index: int) -> None:
         widget = self.tabs.widget(index)
         if isinstance(widget, EditorView):
             self.active_editor = widget
-            # Update presence and refresh sidebar panels.
             self.application.collab_service.update_local_presence(
                 widget.artifact.artifact_id, widget.artifact.name
             )
@@ -1597,7 +1535,6 @@ class IDEShell(QMainWindow):
                 self.open_artifact(artifact)
 
     def open_artifact(self, artifact: Artifact) -> None:
-        # Switch to an already-open tab rather than duplicating it.
         existing = self._find_editor_tab(artifact.artifact_id)
         if existing is not None:
             self.tabs.setCurrentWidget(existing)
@@ -1640,9 +1577,6 @@ class IDEShell(QMainWindow):
         self.collab_ui.log_event(f"Local edit: {artifact.name}")
         self.analysis_timer.start(400)
 
-    # ------------------------------------------------------------------
-    # Analysis and diagnostics
-    # ------------------------------------------------------------------
 
     def _run_static_analysis(self, add_output: bool) -> None:
         project = self.application.project_manager.active_project
@@ -1721,8 +1655,11 @@ class IDEShell(QMainWindow):
 
     @staticmethod
     def _mermaid_identifier(name: str) -> str:
-        cleaned = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in name.strip())
-        return cleaned or "Unnamed"
+        cleaned_name = "".join(
+            character if character.isalnum() or character == "_" else "_"
+            for character in name.strip()
+        )
+        return cleaned_name or "Unnamed"
 
     def _render_diagnostics(self, diagnostics: list[Diagnostic]) -> None:
         self.diagnostics_tree.clear()
@@ -1740,15 +1677,12 @@ class IDEShell(QMainWindow):
                 ])
             )
 
-    # ------------------------------------------------------------------
-    # Sync status
-    # ------------------------------------------------------------------
 
     def _on_sync_status_changed(self, status: SyncStatus) -> None:
         labels = {
             SyncStatus.IDLE: "Sync: idle",
-            SyncStatus.PENDING: "Sync: pending…",
-            SyncStatus.SYNCING: "Sync: syncing…",
+            SyncStatus.PENDING: "Sync: pending...",
+            SyncStatus.SYNCING: "Sync: syncing...",
             SyncStatus.CONFLICT: "Sync: CONFLICT",
             SyncStatus.ERROR: "Sync: ERROR",
         }
@@ -1760,9 +1694,6 @@ class IDEShell(QMainWindow):
         else:
             self.sync_status_label.setStyleSheet("")
 
-    # ------------------------------------------------------------------
-    # Design artefact persistence
-    # ------------------------------------------------------------------
 
     def _load_diagrams_for_active_project(self) -> None:
         """Populate the diagram canvas from .bscode/design/ for the active project."""
@@ -1776,11 +1707,8 @@ class IDEShell(QMainWindow):
         from ide.infrastructure.bscode_store import DIAGRAM_TYPES
         for diagram_type in DIAGRAM_TYPES:
             self.application.save_diagram(diagram_type, self.diagram_canvas.get_content(diagram_type))
-        self.statusBar().showMessage(f"Design diagrams saved to .bscode/design/  ({len(DIAGRAM_TYPES)} files)")
+        self.statusBar().showMessage(f"Design diagrams saved to .bscode/design/ ({len(DIAGRAM_TYPES)} files)")
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     def _clear_code_editors(self) -> None:
         for index in reversed(range(self.tabs.count())):

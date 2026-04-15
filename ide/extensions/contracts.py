@@ -1,8 +1,8 @@
 """Published extension contracts for the Architecture Driven IDE.
 
-This module is the **stable public API** for plugin developers.  All
+This module is the stable public API for plugin developers. All
 protocols defined here are versioned independently of the internal
-implementation.  A plugin that imports only from this module will remain
+implementation. A plugin that imports only from this module will remain
 compatible across internal refactors.
 
 Quick-start
@@ -23,7 +23,6 @@ Quick-start
            def parse(self, source, artifact_id):
                return AnalysisSnapshot(artifact_id=artifact_id)
 
-       # In your IDE bootstrap:
        app.register_language_extension(MyLangSvc(), [".my"])
 """
 
@@ -41,15 +40,12 @@ from ide.domain.models import (
 )
 
 
-# ---------------------------------------------------------------------------
-# Language extension
-# ---------------------------------------------------------------------------
 
 @runtime_checkable
 class LanguageExtension(Protocol):
     """Add a new programming or markup language to the IDE.
 
-    The IDE calls these methods on a per-file basis.  All methods must be
+    The IDE calls these methods on a per-file basis. All methods must be
     safe to call with arbitrary untrusted source text.
     """
 
@@ -71,9 +67,6 @@ class LanguageExtension(Protocol):
         ...
 
 
-# ---------------------------------------------------------------------------
-# Analysis extension
-# ---------------------------------------------------------------------------
 
 @runtime_checkable
 class AnalysisExtension(Protocol):
@@ -90,9 +83,6 @@ class AnalysisExtension(Protocol):
         ...
 
 
-# ---------------------------------------------------------------------------
-# Build extension
-# ---------------------------------------------------------------------------
 
 @runtime_checkable
 class BuildExtension(Protocol):
@@ -110,13 +100,10 @@ class BuildExtension(Protocol):
         ...
 
 
-# ---------------------------------------------------------------------------
-# Test extension
-# ---------------------------------------------------------------------------
 
 @runtime_checkable
 class TestExtension(Protocol):
-    """Integrate a test framework (pytest, unittest, jest, …).
+    """Integrate a test framework such as pytest, unittest, or jest.
 
     The IDE calls ``run_tests`` when the user triggers 'Run Tests'.
     The returned ``TestRunResult`` drives the Test Results panel and the
@@ -130,9 +117,6 @@ class TestExtension(Protocol):
         ...
 
 
-# ---------------------------------------------------------------------------
-# Theme extension
-# ---------------------------------------------------------------------------
 
 @runtime_checkable
 class ThemeExtension(Protocol):
@@ -147,9 +131,6 @@ class ThemeExtension(Protocol):
     stylesheet: str
 
 
-# ---------------------------------------------------------------------------
-# VCS extension
-# ---------------------------------------------------------------------------
 
 @runtime_checkable
 class VCSExtension(Protocol):

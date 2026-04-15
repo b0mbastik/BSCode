@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +21,9 @@ class PlatformAbstraction:
         return Path.home() / ".architecture_ide"
 
 
-# ---------------------------------------------------------------------------
-# Persistence
-# ---------------------------------------------------------------------------
 
 class Persistence(ABC):
-    """Storage/versioning boundary; replace with real persistence later."""
+    """Storage boundary for artefact persistence."""
 
     @abstractmethod
     def save_artifact(self, artifact: Artifact) -> None:
@@ -59,7 +57,7 @@ class FilesystemPersistence(Persistence):
             try:
                 artifact.path.write_text(artifact.content, encoding="utf-8")
             except OSError:
-                pass  # silently ignore write failures (read-only FS, missing dir, etc.)
+                pass
 
     def load_artifact(self, artifact_id: str) -> Artifact | None:
         artifact = self._cache.get(artifact_id)
@@ -71,12 +69,9 @@ class FilesystemPersistence(Persistence):
         return artifact
 
 
-# ---------------------------------------------------------------------------
-# Revision log  (in-memory version history)
-# ---------------------------------------------------------------------------
 
 class RevisionLog:
-    """Keeps the last N revisions per artefact in memory."""
+    """Keeps a bounded in-memory revision history per artefact."""
 
     MAX_PER_ARTIFACT = 50
 
@@ -96,43 +91,39 @@ class RevisionLog:
 
     def replace_all(self, revisions: list[Revision]) -> None:
         self._log.clear()
-        for revision in sorted(revisions, key=lambda r: r.timestamp, reverse=False):
+        for revision in sorted(revisions, key=lambda revision_item: revision_item.timestamp, reverse=False):
             self.record(revision)
 
     def clear(self, artifact_id: str) -> None:
         self._log.pop(artifact_id, None)
 
 
-# ---------------------------------------------------------------------------
-# Network sync  (with op queue and sync-status tracking)
-# ---------------------------------------------------------------------------
 
 class NetworkSync:
     """Remote collaboration transport boundary.
 
-    Operations are enqueued locally and flushed synchronously in this stub.
-    A real implementation would flush asynchronously and update *status*
-    as acknowledgements arrive, enabling UI indicators for queued/conflicting
-    operations.
+    Operations are enqueued locally and flushed synchronously in this outline.
+    A production implementation would flush asynchronously and update
+    ``status`` as acknowledgements arrive.
     """
 
     def __init__(self) -> None:
         self._queue: list[Operation] = []
         self.status: SyncStatus = SyncStatus.IDLE
         self.endpoint: str = ""
-        self._status_listeners: list[Any] = []
+        self.last_sent_operation: Operation | None = None
+        self._status_listeners: list[Callable[[SyncStatus], None]] = []
 
     def connect(self, endpoint: str) -> None:
         self.endpoint = endpoint
 
-    def add_status_listener(self, listener: Any) -> None:
+    def add_status_listener(self, listener: Callable[[SyncStatus], None]) -> None:
         """Register a callable(SyncStatus) that is notified on status changes."""
         self._status_listeners.append(listener)
 
     def send(self, operation: Operation) -> None:
         self._queue.append(operation)
         self._set_status(SyncStatus.PENDING)
-        # TODO: Replace with real async transport.
         self._flush()
 
     def broadcast(self, operation: Operation) -> None:
@@ -146,9 +137,8 @@ class NetworkSync:
         """Test hook: clear the CONFLICT state."""
         self._set_status(SyncStatus.IDLE)
 
-    # ------------------------------------------------------------------
     def _flush(self) -> None:
-        """Stub flush: immediately clear the queue and report IDLE."""
+        """Immediately clear the local queue in the outline implementation."""
         self._set_status(SyncStatus.SYNCING)
         self.last_sent_operation = self._queue[-1] if self._queue else None
         self._queue.clear()
@@ -161,12 +151,10 @@ class NetworkSync:
                 try:
                     listener(status)
                 except Exception:
+                    # Listener failures must not block collaboration state updates.
                     pass
 
 
-# ---------------------------------------------------------------------------
-# Plugin registry
-# ---------------------------------------------------------------------------
 
 class PluginRegistry:
     """Registry for future language, analysis, and tool integrations."""

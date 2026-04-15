@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
-from ide.domain.models import Artifact, ArtifactType, PluginMetadata
+from ide.domain.models import Artifact, ArtifactType, PluginMetadata, Project
 from ide.infrastructure.adapters import (
     FilesystemPersistence,
     NetworkSync,
@@ -30,57 +30,122 @@ from ide.workspace.workspace_services import (
     VersionService,
 )
 
-# ---------------------------------------------------------------------------
-# File extension constants
-# ---------------------------------------------------------------------------
-
 _TEXT_EXTENSIONS: frozenset[str] = frozenset(
     {
-        ".py", ".pyw",
-        ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
-        ".html", ".htm", ".css", ".scss", ".sass", ".less",
-        ".java", ".kt", ".scala",
-        ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp",
-        ".go", ".rs", ".swift",
-        ".rb", ".php", ".lua",
-        ".sh", ".bash", ".zsh", ".fish", ".bat", ".ps1",
-        ".md", ".rst", ".txt",
-        ".json", ".yaml", ".yml", ".toml", ".xml", ".csv",
-        ".cfg", ".ini", ".env",
+        ".py",
+        ".pyw",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".html",
+        ".htm",
+        ".css",
+        ".scss",
+        ".sass",
+        ".less",
+        ".java",
+        ".kt",
+        ".scala",
+        ".c",
+        ".cpp",
+        ".cc",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".go",
+        ".rs",
+        ".swift",
+        ".rb",
+        ".php",
+        ".lua",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+        ".bat",
+        ".ps1",
+        ".md",
+        ".rst",
+        ".txt",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".xml",
+        ".csv",
+        ".cfg",
+        ".ini",
+        ".env",
         ".sql",
     }
 )
 
 _SKIP_DIRS: frozenset[str] = frozenset(
     {
-        ".bscode",                          # IDE-internal state — never shown as project files
-        ".git", ".hg", ".svn",
-        "__pycache__", ".mypy_cache", ".ruff_cache", ".pytest_cache",
-        "node_modules", ".npm", ".yarn",
-        ".venv", "venv", "env", ".tox",
-        "dist", "build", "out", "target",
-        ".idea", ".vscode", ".vs",
+        ".bscode",
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+        "node_modules",
+        ".npm",
+        ".yarn",
+        ".venv",
+        "venv",
+        "env",
+        ".tox",
+        "dist",
+        "build",
+        "out",
+        "target",
+        ".idea",
+        ".vscode",
+        ".vs",
     }
 )
 
 _EXTENSION_LANGUAGE: dict[str, str] = {
-    ".py": "python", ".pyw": "python",
+    ".py": "python",
+    ".pyw": "python",
     ".java": "java",
-    ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
-    ".ts": "typescript", ".tsx": "typescript",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
 }
+
+_PLAIN_TEXT_LANGUAGES: tuple[str, ...] = (
+    "plain",
+    "javascript",
+    "typescript",
+    "html",
+    "css",
+    "json",
+    "yaml",
+    "markdown",
+    "text",
+    "xml",
+    "toml",
+    "bash",
+    "sql",
+)
 
 _MAX_SCAN_FILES = 300
 
 
 class IDEApplication:
     def __init__(self) -> None:
-        # Platform / infrastructure
         self.platform = PlatformAbstraction()
         self.plugin_registry = PluginRegistry()
         self.revision_log = RevisionLog()
 
-        # Workspace
         self.project_manager = ProjectManager()
         self.project_registry = self.project_manager.projects
         self.session_manager = SessionManager()
@@ -90,16 +155,14 @@ class IDEApplication:
         self.artifact_store = ArtifactStore(self.persistence)
         self.network_sync = NetworkSync()
         self.collab_service = CollabService(self.network_sync)
-        self.bscode_store: BSCodeStore | None = None   # set per open project
+        self.bscode_store: BSCodeStore | None = None
         self.comment_service = CommentService()
         self.version_service = VersionService(self.revision_log)
         self.traceability_service = TraceabilityService()
 
-        # Language services
         self.language_services: dict[str, LanguageService] = {}
         self._register_builtin_plugins()
 
-        # Analysis
         self.analysis_manager = AnalysisManager(
             language_services=self.language_services,
             static_analyser=PythonStaticAnalyser(),
@@ -107,7 +170,6 @@ class IDEApplication:
             dyn_analyser=StubDynAnalyser(),
         )
 
-        # Core services
         self.build_service = BuildService()
         self.debug_service = DebugService()
         self.vcs_service = VCSService()
@@ -118,14 +180,9 @@ class IDEApplication:
 
         self.shell: IDEShell | None = None
 
-    # ------------------------------------------------------------------
-    # Plugin registration
-    # ------------------------------------------------------------------
-
     def _register_builtin_plugins(self) -> None:
         python_service = PythonLangSvc()
-        self.language_services["python"] = python_service
-        self.plugin_registry.register_language(
+        self._register_language_plugin(
             "python",
             python_service,
             PluginMetadata(
@@ -137,8 +194,7 @@ class IDEApplication:
         )
 
         java_service = JavaLangSvc()
-        self.language_services["java"] = java_service
-        self.plugin_registry.register_language(
+        self._register_language_plugin(
             "java",
             java_service,
             PluginMetadata(
@@ -150,16 +206,17 @@ class IDEApplication:
         )
 
         plain_service = PlainTextLangSvc()
-        for lang in (
-            "plain", "javascript", "typescript", "html", "css",
-            "json", "yaml", "markdown", "text", "xml", "toml",
-            "bash", "sql",
-        ):
+        for lang in _PLAIN_TEXT_LANGUAGES:
             self.language_services[lang] = plain_service
 
-    # ------------------------------------------------------------------
-    # Project / file operations
-    # ------------------------------------------------------------------
+    def _register_language_plugin(
+        self,
+        language: str,
+        service: LanguageService,
+        metadata: PluginMetadata,
+    ) -> None:
+        self.language_services[language] = service
+        self.plugin_registry.register_language(language, service, metadata)
 
     def open_project(self, name: str, root_path: Path) -> None:
         normalised = self.platform.normalise_path(root_path)
@@ -213,7 +270,6 @@ class IDEApplication:
         if normalised.suffix.lower() not in _TEXT_EXTENSIONS:
             return None
 
-        # Re-use an existing artefact for this path.
         project = self.project_manager.active_project
         if project is not None:
             for artifact_id in project.artifacts:
@@ -237,10 +293,6 @@ class IDEApplication:
             lang = ext.lstrip(".")
             self.language_services[lang] = service  # type: ignore[assignment]
 
-    # ------------------------------------------------------------------
-    # Shell entry point
-    # ------------------------------------------------------------------
-
     def show(self) -> IDEShell:
         if self.project_manager.active_project is None:
             self.open_project("Architecture IDE Demo", Path.cwd())
@@ -248,19 +300,15 @@ class IDEApplication:
         self.shell.show()
         return self.shell
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _scan_project_directory(self, project, root_path: Path) -> None:
+    def _scan_project_directory(self, project: Project, root_path: Path) -> None:
         count = 0
         for path in sorted(root_path.rglob("*")):
             if count >= _MAX_SCAN_FILES:
                 break
             if not path.is_file():
                 continue
-            rel = path.relative_to(root_path)
-            if any(part in _SKIP_DIRS or part.startswith(".") for part in rel.parts[:-1]):
+            relative_path = path.relative_to(root_path)
+            if any(part in _SKIP_DIRS or part.startswith(".") for part in relative_path.parts[:-1]):
                 continue
             if path.suffix.lower() not in _TEXT_EXTENSIONS:
                 continue
@@ -300,7 +348,7 @@ class IDEApplication:
                 content=(
                     "class IDEShellAdapter:\n"
                     "    def open(self):\n"
-                    "        # TODO: connect to real project commands\n"
+                    "        # Extension point for project command integration.\n"
                     "        return 'desktop shell ready'\n"
                 ),
             ),

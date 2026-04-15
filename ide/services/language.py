@@ -1,9 +1,9 @@
-"""Language service extension point and outline language implementations."""
+"""Language-service extension point and outline implementations."""
 
 from __future__ import annotations
 
-import re
 import ast
+import re
 from typing import Protocol
 
 from ide.domain.models import AnalysisSnapshot, Diagnostic, DiagnosticSeverity
@@ -20,6 +20,18 @@ class LanguageService(Protocol):
         ...
 
 
+def _keyword_spans(source: str, keywords: set[str]) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    for keyword in keywords:
+        for match in re.finditer(rf"\b{re.escape(keyword)}\b", source):
+            spans.append((match.start(), match.end(), "keyword"))
+    return spans
+
+
+def _todo_lines(lines: list[str]) -> list[int]:
+    return [index + 1 for index, line in enumerate(lines) if "TODO" in line]
+
+
 class PythonLangSvc:
     """Minimal concrete language service for the Python-only prototype."""
 
@@ -29,11 +41,7 @@ class PythonLangSvc:
         return ["def", "class", "import", "pytest", "typing"]
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
-        spans: list[tuple[int, int, str]] = []
-        for keyword in self.keywords:
-            for match in re.finditer(rf"\b{re.escape(keyword)}\b", source):
-                spans.append((match.start(), match.end(), "keyword"))
-        return spans
+        return _keyword_spans(source, self.keywords)
 
     def parse(self, source: str, artifact_id: str) -> AnalysisSnapshot:
         lines = source.splitlines()
@@ -61,9 +69,16 @@ class PythonLangSvc:
                     ]
                     methods.extend(class_methods[node.name])
         except SyntaxError:
-            functions = [line.strip()[4:].split("(", 1)[0] for line in lines if line.strip().startswith("def ")]
-            classes = [line.strip()[6:].split("(", 1)[0].rstrip(":") for line in lines if line.strip().startswith("class ")]
-        todos = [index + 1 for index, line in enumerate(lines) if "TODO" in line]
+            functions = [
+                line.strip()[4:].split("(", 1)[0]
+                for line in lines
+                if line.strip().startswith("def ")
+            ]
+            classes = [
+                line.strip()[6:].split("(", 1)[0].rstrip(":")
+                for line in lines
+                if line.strip().startswith("class ")
+            ]
         return AnalysisSnapshot(
             artifact_id=artifact_id,
             code_metadata={
@@ -74,7 +89,7 @@ class PythonLangSvc:
                 "methods": methods,
                 "class_methods": class_methods,
                 "bases": bases,
-                "todos": todos,
+                "todos": _todo_lines(lines),
             },
         )
 
@@ -139,17 +154,13 @@ class JavaLangSvc:
         return ["class", "interface", "public", "private", "static", "void"]
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
-        spans: list[tuple[int, int, str]] = []
-        for keyword in self.keywords:
-            for match in re.finditer(rf"\b{re.escape(keyword)}\b", source):
-                spans.append((match.start(), match.end(), "keyword"))
-        return spans
+        return _keyword_spans(source, self.keywords)
 
     def parse(self, source: str, artifact_id: str) -> AnalysisSnapshot:
         lines = source.splitlines()
         type_matches = list(self._type_re.finditer(source))
-        classes = [m.group(2) for m in type_matches if m.group(1) == "class"]
-        interfaces = [m.group(2) for m in type_matches if m.group(1) == "interface"]
+        classes = [match.group(2) for match in type_matches if match.group(1) == "class"]
+        interfaces = [match.group(2) for match in type_matches if match.group(1) == "interface"]
         bases: dict[str, list[str]] = {}
         for match in self._inheritance_re.finditer(source):
             class_name = match.group(1)
@@ -157,7 +168,11 @@ class JavaLangSvc:
             if match.group(2):
                 parents.append(match.group(2))
             if match.group(3):
-                parents.extend(p.strip() for p in match.group(3).split(",") if p.strip())
+                parents.extend(
+                    parent.strip()
+                    for parent in match.group(3).split(",")
+                    if parent.strip()
+                )
             bases[class_name] = parents
         methods = [
             name
@@ -165,7 +180,6 @@ class JavaLangSvc:
             if name not in {"if", "for", "while", "switch", "catch"}
         ]
         class_methods = {class_name: methods for class_name in classes}
-        todos = [index + 1 for index, line in enumerate(lines) if "TODO" in line]
         return AnalysisSnapshot(
             artifact_id=artifact_id,
             code_metadata={
@@ -176,7 +190,7 @@ class JavaLangSvc:
                 "methods": methods,
                 "class_methods": class_methods,
                 "bases": bases,
-                "todos": todos,
+                "todos": _todo_lines(lines),
             },
         )
 

@@ -16,9 +16,6 @@ from ide.domain.models import (
 from ide.infrastructure.adapters import NetworkSync, Persistence, RevisionLog
 
 
-# ---------------------------------------------------------------------------
-# Project management
-# ---------------------------------------------------------------------------
 
 class ProjectManager:
     def __init__(self) -> None:
@@ -42,9 +39,6 @@ class ProjectManager:
             project.artifacts.append(artifact.artifact_id)
 
 
-# ---------------------------------------------------------------------------
-# Artefact store
-# ---------------------------------------------------------------------------
 
 class ArtifactStore:
     def __init__(self, persistence: Persistence) -> None:
@@ -65,9 +59,6 @@ class ArtifactStore:
         return [artifact for artifact_id in project.artifacts if (artifact := self.load(artifact_id))]
 
 
-# ---------------------------------------------------------------------------
-# Session management
-# ---------------------------------------------------------------------------
 
 class SessionManager:
     def __init__(self) -> None:
@@ -82,16 +73,11 @@ class SessionManager:
         return self.current_session
 
 
-# ---------------------------------------------------------------------------
-# Collaboration service  (presence + op broadcasting)
-# ---------------------------------------------------------------------------
-
 class CollabService:
     """Tracks peer presence and broadcasts local operations.
 
-    Presence: each peer advertises the artefact they are currently editing
-    via ``active_artifact_id`` / ``active_artifact_name`` on PeerSession.
-    The local user's current artefact is updated via ``update_local_presence``.
+    Each peer advertises the artefact they are editing via ``PeerSession``.
+    Local edits are passed to the network boundary as operations.
     """
 
     def __init__(self, network_sync: NetworkSync) -> None:
@@ -103,7 +89,7 @@ class CollabService:
         self.crdt_document: str = ""
 
     def submit_op(self, operation: Operation) -> None:
-        # TODO: Replace whole-document snapshot with a real CRDT algorithm.
+        # The outline implementation uses whole-document replacement at the CRDT boundary.
         self.crdt_document = operation.text
         self.broadcast(operation)
 
@@ -115,27 +101,24 @@ class CollabService:
     ) -> None:
         """Advertise which artefact the local user is currently editing.
 
-        Simulates peer activity by having the first stub peer mirror the
-        same artefact (in a real system this would come from the network).
+        The prototype mirrors this state to the first peer so the presence UI
+        demonstrates the intended network behaviour.
         """
         if artifact_id and self.peers:
             self.peers[0].active_artifact_id = artifact_id
             self.peers[0].active_artifact_name = artifact_name
 
     def get_peers_editing(self, artifact_id: str) -> list[PeerSession]:
-        """Return stub peers whose presence shows them editing *artifact_id*."""
-        return [p for p in self.peers if p.active_artifact_id == artifact_id]
+        """Return peers whose presence shows them editing ``artifact_id``."""
+        return [peer for peer in self.peers if peer.active_artifact_id == artifact_id]
 
 
-# ---------------------------------------------------------------------------
-# Comment service
-# ---------------------------------------------------------------------------
 
 class CommentService:
     """Stores and retrieves inline comments/annotations on artefacts."""
 
     def __init__(self) -> None:
-        self._comments: dict[str, list[Comment]] = {}  # artifact_id → comments
+        self._comments: dict[str, list[Comment]] = {}
 
     def add_comment(self, comment: Comment) -> Comment:
         self._comments.setdefault(comment.artifact_id, []).append(comment)
@@ -146,14 +129,14 @@ class CommentService:
 
     def remove_comment(self, comment_id: str) -> bool:
         for bucket in self._comments.values():
-            for i, c in enumerate(bucket):
-                if c.comment_id == comment_id:
-                    bucket.pop(i)
+            for index, comment in enumerate(bucket):
+                if comment.comment_id == comment_id:
+                    bucket.pop(index)
                     return True
         return False
 
     def all_comments(self) -> list[Comment]:
-        return [c for bucket in self._comments.values() for c in bucket]
+        return [comment for bucket in self._comments.values() for comment in bucket]
 
     def replace_all(self, comments: list[Comment]) -> None:
         self._comments.clear()
@@ -161,9 +144,6 @@ class CommentService:
             self._comments.setdefault(comment.artifact_id, []).append(comment)
 
 
-# ---------------------------------------------------------------------------
-# Version service
-# ---------------------------------------------------------------------------
 
 class VersionService:
     """Creates explicit revision checkpoints and retrieves version history.

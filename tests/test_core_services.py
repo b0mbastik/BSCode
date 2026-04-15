@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import unittest
+import subprocess
 import tempfile
 import time
+import unittest
 from pathlib import Path
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
@@ -19,18 +20,18 @@ from ide.workspace.workspace_services import ArtifactStore, ProjectManager, Vers
 class ProjectAndArtifactTests(unittest.TestCase):
     def test_project_manager_create_switch_and_register(self) -> None:
         manager = ProjectManager()
-        first = manager.create_project("First", Path("/tmp/first"))
-        second = manager.create_project("Second", Path("/tmp/second"))
+        first_project = manager.create_project("First", Path("/tmp/first"))
+        second_project = manager.create_project("Second", Path("/tmp/second"))
         artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE)
 
-        manager.register_artifact(first, artifact)
-        manager.register_artifact(first, artifact)
-        active = manager.switch_project(first.project_id)
+        manager.register_artifact(first_project, artifact)
+        manager.register_artifact(first_project, artifact)
+        active_project = manager.switch_project(first_project.project_id)
 
-        self.assertEqual(active, first)
-        self.assertEqual(manager.active_project, first)
-        self.assertEqual(first.artifacts, [artifact.artifact_id])
-        self.assertIn(second.project_id, manager.projects)
+        self.assertEqual(active_project, first_project)
+        self.assertEqual(manager.active_project, first_project)
+        self.assertEqual(first_project.artifacts, [artifact.artifact_id])
+        self.assertIn(second_project.project_id, manager.projects)
 
     def test_artifact_store_uses_persistence_boundary(self) -> None:
         store = ArtifactStore(InMemoryPersistence())
@@ -73,7 +74,9 @@ class LanguageServiceTests(unittest.TestCase):
 
         diagnostics = service.diagnostics_for("public void run() {}\n")
 
-        self.assertTrue(any("no class or interface" in d.message for d in diagnostics))
+        self.assertTrue(
+            any("no class or interface" in diagnostic.message for diagnostic in diagnostics)
+        )
 
 
 class AnalysisAndTestingTests(unittest.TestCase):
@@ -113,7 +116,9 @@ class AnalysisAndTestingTests(unittest.TestCase):
 
         result = manager.run_static_analysis([artifact])
 
-        self.assertTrue(any(d.artifact_id == artifact.artifact_id for d in result.diagnostics))
+        self.assertTrue(
+            any(diagnostic.artifact_id == artifact.artifact_id for diagnostic in result.diagnostics)
+        )
 
     def test_test_service_classifies_pass_fail_skip(self) -> None:
         service = TestService()
@@ -141,9 +146,9 @@ class AnalysisAndTestingTests(unittest.TestCase):
         self.assertFalse(result.success)
 
     def test_test_service_runs_real_unittest_for_disk_project(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            test_file = root / "test_real.py"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory)
+            test_file = project_root / "test_real.py"
             test_file.write_text(
                 "import unittest\n\n"
                 "class RealTest(unittest.TestCase):\n"
@@ -151,7 +156,7 @@ class AnalysisAndTestingTests(unittest.TestCase):
                 "        self.assertEqual(1, 1)\n",
                 encoding="utf-8",
             )
-            project = ProjectManager().create_project("DiskTests", root)
+            project = ProjectManager().create_project("DiskTests", project_root)
             artifact = Artifact(
                 name=test_file.name,
                 artifact_type=ArtifactType.TEST,
@@ -171,11 +176,11 @@ class AnalysisAndTestingTests(unittest.TestCase):
         self.assertEqual(RunService._java_package(source), "edu.demo")
 
     def test_debug_service_starts_and_stops_python_session(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            script = root / "debug_me.py"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory)
+            script = project_root / "debug_me.py"
             script.write_text("x = 1\ny = x + 1\nprint(y)\n", encoding="utf-8")
-            project = ProjectManager().create_project("Debug", root)
+            project = ProjectManager().create_project("Debug", project_root)
             service = DebugService()
 
             result = service.start_debug_session(project, script, {1})
@@ -187,10 +192,10 @@ class AnalysisAndTestingTests(unittest.TestCase):
             self.assertTrue(any(snapshot.status == "paused" for snapshot in snapshots))
 
     def test_vcs_service_runs_git_status(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            __import__("subprocess").run(["git", "init"], cwd=root, check=True, capture_output=True)
-            project = ProjectManager().create_project("Git", root)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory)
+            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True)
+            project = ProjectManager().create_project("Git", project_root)
 
             result = VCSService().status(project)
 
@@ -239,8 +244,8 @@ class TraceabilityAndRevisionTests(unittest.TestCase):
         self.assertEqual(revision.content, artifact.content)
 
     def test_bscode_store_persists_workspace_sidecars(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = BSCodeStore(Path(tmp))
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = BSCodeStore(Path(temporary_directory))
             comment = Comment(
                 artifact_id="a1",
                 line=3,

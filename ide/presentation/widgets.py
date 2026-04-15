@@ -18,10 +18,6 @@ from PySide6.QtWidgets import (
 from ide.domain.models import PeerSession
 
 
-# ---------------------------------------------------------------------------
-# Diagram type templates
-# ---------------------------------------------------------------------------
-
 _DIAGRAM_TEMPLATES: list[tuple[str, str]] = [
     (
         "Component View",
@@ -58,7 +54,7 @@ _DIAGRAM_TEMPLATES: list[tuple[str, str]] = [
         "        revision_log\n"
         "    }\n"
         "}\n"
-        "Collaboration Server (stub) {\n"
+        "Collaboration Server (outline) {\n"
         "    NetworkSync endpoint\n"
         "}\n",
     ),
@@ -108,7 +104,7 @@ class DiagramCanvas(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        header = QLabel("Architecture / Design Canvas — select a diagram type below")
+        header = QLabel("Architecture / Design Canvas - select a diagram type below")
         header.setAccessibleName("Diagram canvas header")
         layout.addWidget(header)
 
@@ -124,13 +120,18 @@ class DiagramCanvas(QWidget):
             editor.setPlaceholderText(f"Edit the {name} DSL here.")
             editor.setAccessibleName(f"{name} diagram editor")
             editor.setToolTip(f"Text-based editor for {name} diagrams.")
-            editor.textChanged.connect(lambda n=name, e=editor: self._emit_change(n, e))
+            editor.textChanged.connect(
+                lambda diagram_name=name, diagram_editor=editor: self._emit_change(
+                    diagram_name,
+                    diagram_editor,
+                )
+            )
             self._tabs.addTab(editor, name)
             self._editors[name] = editor
 
         layout.addWidget(self._tabs)
 
-        # Backwards-compat: expose .editor pointing at the active diagram's editor.
+        # Preserve the existing ``.editor`` attribute for code that expects it.
         self._tabs.currentChanged.connect(self._sync_editor_alias)
         self.editor = self._editors[_DIAGRAM_TEMPLATES[0][0]]
 
@@ -193,8 +194,7 @@ class DiagramCanvas(QWidget):
 class CollabUI(QWidget):
     """Collaboration panel showing peer presence and activity log.
 
-    Presence shows *which artefact* each peer is currently editing —
-    the "who is editing what" requirement.
+    Presence records which artefact each peer is currently editing.
     """
 
     def __init__(self) -> None:
@@ -227,9 +227,9 @@ class CollabUI(QWidget):
         self.peer_list.clear()
         for peer in peers:
             if peer.active_artifact_name:
-                label = f"{peer.display_name}  \u2014  editing: {peer.active_artifact_name}"
+                label = f"{peer.display_name} - editing: {peer.active_artifact_name}"
             else:
-                label = f"{peer.display_name}  \u2014  idle"
+                label = f"{peer.display_name} - idle"
             self.peer_list.addItem(label)
 
     def update_peer(self, peer: PeerSession) -> None:
@@ -238,15 +238,13 @@ class CollabUI(QWidget):
             item = self.peer_list.item(i)
             if item and peer.display_name in item.text():
                 if peer.active_artifact_name:
-                    item.setText(f"{peer.display_name}  \u2014  editing: {peer.active_artifact_name}")
+                    item.setText(f"{peer.display_name} - editing: {peer.active_artifact_name}")
                 else:
-                    item.setText(f"{peer.display_name}  \u2014  idle")
+                    item.setText(f"{peer.display_name} - idle")
                 return
-        # Not found — add as new row.
         self.set_peers([peer])
 
     def log_event(self, message: str) -> None:
         self.event_log.insertItem(0, message)
-        # Keep the log bounded.
         while self.event_log.count() > 100:
             self.event_log.takeItem(self.event_log.count() - 1)
