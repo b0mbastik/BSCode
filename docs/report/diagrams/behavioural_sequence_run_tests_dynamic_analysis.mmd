@@ -1,0 +1,22 @@
+sequenceDiagram
+    actor Developer
+    participant IDEShell
+    participant ProjectManager
+    participant ArtifactStore
+    participant TestService
+    participant AnalysisManager
+    participant DynAnalyser
+
+    Developer->>IDEShell: Run Tests
+    IDEShell->>ProjectManager: active_project
+    ProjectManager-->>IDEShell: Project
+    IDEShell->>ArtifactStore: list_for_project(Project)
+    ArtifactStore-->>IDEShell: artifacts
+    IDEShell->>TestService: run_tests(Project, artifacts)
+    TestService-->>IDEShell: TestRunResult
+    IDEShell->>IDEShell: render test results
+    IDEShell->>AnalysisManager: run_dynamic_analysis_from_tests(TestRunResult)
+    AnalysisManager->>DynAnalyser: analyse_test_results(TestRunResult)
+    DynAnalyser-->>AnalysisManager: AnalysisResult
+    AnalysisManager-->>IDEShell: dynamic diagnostics
+    IDEShell->>IDEShell: render diagnostics

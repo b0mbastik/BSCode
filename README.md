@@ -19,7 +19,7 @@ On macOS, if PySide6 was installed with the framework Python installer but Homeb
 
 ## Architectural Layers
 
-- `ide.presentation`: PySide6 desktop shell, editor surface, diagram placeholder, collaboration presence panel, diagnostics and output views.
+- `ide.presentation`: PySide6 desktop shell, editor surface, diagram canvas, collaboration presence panel, diagnostics and output views.
 - `ide.workspace`: project selection, artifact storage facade, collaboration orchestration, user session context.
 - `ide.services`: language services and external tool integration stubs for build, debug, and Git.
 - `ide.analysis`: static analysis, conformance checking, dynamic analysis extension points, and orchestration.
@@ -32,7 +32,33 @@ The prototype does not implement real networking, CRDT algorithms, database pers
 
 ## Current Language Support
 
-Only Python is implemented as a concrete language service through `PythonLangSvc`. The architecture still treats language support as pluggable through the `LanguageService` protocol and `PluginRegistry`.
+- Python is implemented as the concrete outline language service through `PythonLangSvc`.
+- Java is represented by a skeletal `JavaLangSvc` that recognises `.java` files, extracts simple class/interface/method metadata, and returns placeholder completions/highlighting.
+- Other recognised text formats use `PlainTextLangSvc`.
+
+The architecture treats language support as pluggable through the `LanguageService` protocol and `PluginRegistry`.
+
+## Design Artefacts
+
+Editable Mermaid diagram sources for the submission are stored in `docs/report/diagrams/`:
+
+- `logical_view_component_diagram.mmd`
+- `structural_design_class_diagram.mmd`
+- `behavioural_sequence_edit_analyse_collaborate.mmd`
+- `behavioural_sequence_run_tests_dynamic_analysis.mmd`
+
+These diagrams use the same component and class names as the implementation.
+
+## Verification
+
+Run the lightweight non-UI checks with:
+
+```bash
+python3 -m compileall ide main.py
+python3 -m unittest discover -s tests
+```
+
+See `VERIFICATION.md` for the latest recorded verification notes and intentional limitations.
 
 ## Extending With A New Language
 

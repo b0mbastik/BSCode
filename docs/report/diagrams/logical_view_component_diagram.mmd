@@ -1,0 +1,80 @@
+flowchart TB
+    subgraph App["Application Composition"]
+        IDEApplication["IDEApplication"]
+    end
+
+    subgraph Presentation["Presentation Layer"]
+        IDEShell["IDEShell"]
+        EditorView["EditorView"]
+        DiagramCanvas["DiagramCanvas"]
+        CollabUI["CollabUI"]
+    end
+
+    subgraph Workspace["Workspace Layer"]
+        ProjectManager["ProjectManager"]
+        ArtifactStore["ArtifactStore"]
+        CollabService["CollabService"]
+        SessionManager["SessionManager"]
+        CommentService["CommentService"]
+        VersionService["VersionService"]
+        TraceabilityService["TraceabilityService"]
+    end
+
+    subgraph Services["Core IDE Services"]
+        LanguageService["LanguageService"]
+        PythonLangSvc["PythonLangSvc"]
+        JavaLangSvc["JavaLangSvc"]
+        BuildService["BuildService"]
+        DebugService["DebugService"]
+        RunService["RunService"]
+        TestService["TestService"]
+        VCSService["VCSService"]
+        SearchService["SearchService"]
+        HelpService["HelpService"]
+    end
+
+    subgraph Analysis["Analysis Engine"]
+        AnalysisManager["AnalysisManager"]
+        StaticAnalyser["StaticAnalyser"]
+        ConformanceChecker["ConformanceChecker"]
+        DynAnalyser["DynAnalyser"]
+    end
+
+    subgraph Domain["Domain Model"]
+        Artifact["Artifact"]
+        Project["Project"]
+        Operation["Operation"]
+        Diagnostic["Diagnostic"]
+        TraceLink["TraceLink"]
+        Revision["Revision"]
+    end
+
+    subgraph Infrastructure["Infrastructure Layer"]
+        PlatformAbstraction["PlatformAbstraction"]
+        Persistence["Persistence"]
+        FilesystemPersistence["FilesystemPersistence"]
+        NetworkSync["NetworkSync"]
+        RevisionLog["RevisionLog"]
+        PluginRegistry["PluginRegistry"]
+        BSCodeStore["BSCodeStore"]
+    end
+
+    IDEApplication --> Presentation
+    IDEApplication --> Workspace
+    IDEApplication --> Services
+    IDEApplication --> Analysis
+    IDEApplication --> Infrastructure
+
+    Presentation --> Workspace
+    Presentation --> Services
+    Presentation --> Analysis
+    Workspace --> Infrastructure
+    Workspace --> Domain
+    Services --> Domain
+    Analysis --> Services
+    Analysis --> Domain
+    Infrastructure --> Domain
+
+    PythonLangSvc -.implements.-> LanguageService
+    JavaLangSvc -.implements.-> LanguageService
+    FilesystemPersistence -.implements.-> Persistence

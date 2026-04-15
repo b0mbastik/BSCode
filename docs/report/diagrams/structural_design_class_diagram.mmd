@@ -1,0 +1,118 @@
+classDiagram
+    class IDEApplication {
+        +open_project(name, root_path)
+        +switch_project(project_id)
+        +open_file(path) Artifact
+        +register_language_extension(service, extensions)
+        +show() IDEShell
+    }
+
+    class IDEShell {
+        +open_project()
+        +open_file()
+        +run_tests()
+        +save_active_artifact()
+        +show_help_topics()
+    }
+
+    class EditorView {
+        +apply_op(operation)
+        +render_diagnostics(diagnostics)
+    }
+
+    class DiagramCanvas {
+        +diagram_types() list
+        +get_content(diagram_type) str
+        +set_current_diagram(diagram_type)
+    }
+
+    class ProjectManager {
+        +create_project(name, root_path) Project
+        +switch_project(project_id) Project
+        +register_artifact(project, artifact)
+    }
+
+    class ArtifactStore {
+        +save(artifact)
+        +load(artifact_id) Artifact
+        +list_for_project(project) list
+    }
+
+    class CollabService {
+        +submit_op(operation)
+        +broadcast(operation)
+        +update_local_presence(artifact_id, artifact_name)
+    }
+
+    class LanguageService {
+        <<Protocol>>
+        +complete(source, line, column) list
+        +highlight(source) list
+        +parse(source, artifact_id) AnalysisSnapshot
+    }
+
+    class PythonLangSvc
+    class JavaLangSvc
+
+    class AnalysisManager {
+        +run_static_analysis(artifacts) AnalysisResult
+        +run_conformance_check(snapshot) AnalysisResult
+        +run_dynamic_analysis_from_tests(test_result) AnalysisResult
+    }
+
+    class StaticAnalyser {
+        <<abstract>>
+        +analyse(artifact, language_service) AnalysisResult
+    }
+
+    class ConformanceChecker {
+        +check(snapshot) AnalysisResult
+    }
+
+    class DynAnalyser {
+        <<abstract>>
+        +analyse_runtime(project) AnalysisResult
+        +analyse_test_results(test_result) AnalysisResult
+    }
+
+    class Persistence {
+        <<abstract>>
+        +save_artifact(artifact)
+        +load_artifact(artifact_id) Artifact
+    }
+
+    class FilesystemPersistence
+    class NetworkSync
+    class PluginRegistry
+    class TestService
+    class SearchService
+    class HelpService
+    class TraceabilityService
+    class VersionService
+
+    IDEApplication --> IDEShell
+    IDEApplication --> ProjectManager
+    IDEApplication --> ArtifactStore
+    IDEApplication --> AnalysisManager
+    IDEApplication --> PluginRegistry
+    IDEApplication --> TestService
+    IDEApplication --> SearchService
+    IDEApplication --> HelpService
+
+    IDEShell --> EditorView
+    IDEShell --> DiagramCanvas
+    IDEShell --> CollabService
+    IDEShell --> TraceabilityService
+    IDEShell --> VersionService
+
+    ArtifactStore --> Persistence
+    FilesystemPersistence ..|> Persistence
+    CollabService --> NetworkSync
+
+    AnalysisManager --> StaticAnalyser
+    AnalysisManager --> ConformanceChecker
+    AnalysisManager --> DynAnalyser
+    AnalysisManager --> LanguageService
+    PythonLangSvc ..|> LanguageService
+    JavaLangSvc ..|> LanguageService
+    PluginRegistry --> LanguageService

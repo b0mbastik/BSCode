@@ -155,6 +155,14 @@ class DiagramCanvas(QWidget):
                 editor.setPlainText(content)
                 editor.blockSignals(False)
 
+    def reset_to_templates(self) -> None:
+        for diagram_type, template in _DIAGRAM_TEMPLATES:
+            editor = self._editors.get(diagram_type)
+            if editor is not None:
+                editor.blockSignals(True)
+                editor.setPlainText(template)
+                editor.blockSignals(False)
+
     def _sync_editor_alias(self, index: int) -> None:
         name = self._tabs.tabText(index)
         if name in self._editors:
@@ -162,6 +170,15 @@ class DiagramCanvas(QWidget):
 
     def get_editor(self, diagram_type: str) -> QPlainTextEdit | None:
         return self._editors.get(diagram_type)
+
+    def diagram_types(self) -> list[str]:
+        return list(self._editors)
+
+    def set_current_diagram(self, diagram_type: str) -> None:
+        for index in range(self._tabs.count()):
+            if self._tabs.tabText(index) == diagram_type:
+                self._tabs.setCurrentIndex(index)
+                return
 
     def set_content(self, diagram_type: str, content: str) -> None:
         editor = self._editors.get(diagram_type)

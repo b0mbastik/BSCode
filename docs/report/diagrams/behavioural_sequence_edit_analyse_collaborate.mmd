@@ -1,0 +1,24 @@
+sequenceDiagram
+    actor Developer
+    participant EditorView
+    participant TextBuffer
+    participant IDEShell
+    participant CollabService
+    participant NetworkSync
+    participant ArtifactStore
+    participant AnalysisManager
+    participant LanguageService
+
+    Developer->>EditorView: edit text
+    EditorView->>TextBuffer: apply(Operation)
+    EditorView->>IDEShell: on_operation(Operation, Artifact)
+    IDEShell->>CollabService: submit_op(Operation)
+    CollabService->>NetworkSync: broadcast(Operation)
+    IDEShell->>ArtifactStore: save(Artifact)
+    IDEShell->>AnalysisManager: run_static_analysis(artifacts)
+    AnalysisManager->>LanguageService: parse(source, artifact_id)
+    LanguageService-->>AnalysisManager: AnalysisSnapshot
+    AnalysisManager-->>IDEShell: AnalysisResult
+    IDEShell->>AnalysisManager: run_conformance_check(snapshot)
+    AnalysisManager-->>IDEShell: conformance diagnostics
+    IDEShell->>EditorView: render_diagnostics(diagnostics)

@@ -10,6 +10,7 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -130,6 +131,7 @@ class IDEShell(QMainWindow):
         self.application = application
         self.active_editor: EditorView | None = None
         self._last_diagnostics: list[Diagnostic] = []
+        self._project_selector_updating = False
 
         self.setWindowTitle("Architecture Driven Collaborative IDE")
         self.resize(1400, 900)
@@ -147,6 +149,7 @@ class IDEShell(QMainWindow):
         self.application.network_sync.add_status_listener(self._on_sync_status_changed)
 
         self.statusBar().showMessage("Desktop IDE shell ready.  Press F1 for help.")
+        self._refresh_project_selector()
         self.refresh_project_explorer()
         self._load_diagrams_for_active_project()
 
@@ -293,6 +296,17 @@ class IDEShell(QMainWindow):
         toolbar.addAction(self.run_tests_action)
         toolbar.addAction(self.build_action)
         toolbar.addAction(self.static_analysis_action)
+        toolbar.addSeparator()
+
+        project_label = QLabel("Project: ")
+        project_label.setAccessibleName("Active project selector label")
+        self.project_selector = QComboBox()
+        self.project_selector.setAccessibleName("Active project selector")
+        self.project_selector.setToolTip("Switch between projects opened in this IDE session.")
+        self.project_selector.setMinimumWidth(180)
+        self.project_selector.currentIndexChanged.connect(self._on_project_selected)
+        toolbar.addWidget(project_label)
+        toolbar.addWidget(self.project_selector)
         toolbar.addSeparator()
 
         # Inline search field
@@ -452,6 +466,7 @@ class IDEShell(QMainWindow):
             return
         self.application.open_project(name.strip(), Path.cwd() / name.strip())
         self._clear_code_editors()
+        self._refresh_project_selector()
         self._load_diagrams_for_active_project()
         self.refresh_project_explorer()
         self.output_view.appendPlainText(f"Created project: {name.strip()}")
@@ -463,6 +478,7 @@ class IDEShell(QMainWindow):
         project_name = Path(path).name or "Opened Project"
         self.application.open_project(project_name, Path(path))
         self._clear_code_editors()
+        self._refresh_project_selector()
         self._load_diagrams_for_active_project()
         self.refresh_project_explorer()
         self.output_view.appendPlainText(f"Opened project: {project_name} ({path})")
@@ -650,7 +666,7 @@ class IDEShell(QMainWindow):
         project = self.application.project_manager.active_project
         if project is None:
             return
-        artifacts = self.application.artifact_store.list_for_project(project)
+        artifacts = self._searchable_artifacts()
         results = self.application.search_service.search(query, artifacts)
 
         self.search_results_tree.clear()
@@ -667,18 +683,57 @@ class IDEShell(QMainWindow):
             item = self.search_results_tree.topLevelItem(
                 self.search_results_tree.topLevelItemCount() - 1
             )
-            item.setData(0, Qt.ItemDataRole.UserRole, (r.artifact_id, r.line))
+            if r.artifact_id.startswith("design:"):
+                item.setData(
+                    0,
+                    Qt.ItemDataRole.UserRole,
+                    ("diagram", r.artifact_id.removeprefix("design:"), r.line),
+                )
+            else:
+                item.setData(0, Qt.ItemDataRole.UserRole, ("artifact", r.artifact_id, r.line))
 
         self.bottom_tabs.setCurrentWidget(self.search_results_tree)
         self.statusBar().showMessage(
             f"Search '{query}': {len(results)} match(es) across {len(artifacts)} artefact(s)."
         )
 
+    def _searchable_artifacts(self) -> list[Artifact]:
+        project = self.application.project_manager.active_project
+        if project is None:
+            return []
+        artifacts = self.application.artifact_store.list_for_project(project)
+        design_artifacts = [
+            Artifact(
+                name=f"{diagram_type} diagram",
+                artifact_type=ArtifactType.DESIGN,
+                language="plain",
+                content=self.diagram_canvas.get_content(diagram_type),
+                artifact_id=f"design:{diagram_type}",
+            )
+            for diagram_type in self.diagram_canvas.diagram_types()
+        ]
+        return artifacts + design_artifacts
+
     def _navigate_to_search_result(self, item: QTreeWidgetItem) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data is None:
             return
-        artifact_id, line = data
+        if len(data) == 2:
+            kind, target, line = "artifact", data[0], data[1]
+        else:
+            kind, target, line = data
+        if kind == "diagram":
+            self.tabs.setCurrentWidget(self.diagram_canvas)
+            self.diagram_canvas.set_current_diagram(str(target))
+            editor = self.diagram_canvas.get_editor(str(target))
+            if editor is not None:
+                block = editor.document().findBlockByLineNumber(max(0, int(line) - 1))
+                cursor = editor.textCursor()
+                cursor.setPosition(block.position())
+                editor.setTextCursor(cursor)
+                editor.ensureCursorVisible()
+            return
+        artifact_id = str(target)
         artifact = self.application.artifact_store.load(artifact_id)
         if artifact is None:
             return
@@ -899,6 +954,39 @@ class IDEShell(QMainWindow):
             self.trace_tree.addTopLevelItem(item)
 
     # ------------------------------------------------------------------
+    # Project switching
+    # ------------------------------------------------------------------
+
+    def _refresh_project_selector(self) -> None:
+        self._project_selector_updating = True
+        self.project_selector.clear()
+        active = self.application.project_manager.active_project
+        active_index = -1
+        for index, project in enumerate(self.application.project_manager.projects.values()):
+            self.project_selector.addItem(project.name, project.project_id)
+            if active is not None and project.project_id == active.project_id:
+                active_index = index
+        if active_index >= 0:
+            self.project_selector.setCurrentIndex(active_index)
+        self._project_selector_updating = False
+
+    def _on_project_selected(self, index: int) -> None:
+        if self._project_selector_updating or index < 0:
+            return
+        project_id = self.project_selector.itemData(index)
+        active = self.application.project_manager.active_project
+        if not project_id or (active is not None and project_id == active.project_id):
+            return
+        self.application.switch_project(str(project_id))
+        self._clear_code_editors()
+        self._load_diagrams_for_active_project()
+        self.refresh_project_explorer()
+        project = self.application.project_manager.active_project
+        if project is not None:
+            self.output_view.appendPlainText(f"Switched project: {project.name}")
+            self.statusBar().showMessage(f"Project '{project.name}' active.")
+
+    # ------------------------------------------------------------------
     # Project explorer
     # ------------------------------------------------------------------
 
@@ -1076,6 +1164,7 @@ class IDEShell(QMainWindow):
 
     def _load_diagrams_for_active_project(self) -> None:
         """Populate the diagram canvas from .bscode/design/ for the active project."""
+        self.diagram_canvas.reset_to_templates()
         saved = self.application.load_diagrams()
         if saved:
             self.diagram_canvas.load_saved_content(saved)

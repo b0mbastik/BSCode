@@ -28,9 +28,14 @@ class PythonStaticAnalyser(StaticAnalyser):
     def analyse(self, artifact: Artifact, language_service: LanguageService) -> AnalysisResult:
         snapshot = language_service.parse(artifact.content, artifact.artifact_id)
         diagnostics: list[Diagnostic] = []
-        if isinstance(language_service, PythonLangSvc):
-            diagnostics.extend(language_service.diagnostics_for(artifact.content))
-        if not snapshot.code_metadata.get("functions") and artifact.content.strip():
+        diagnostics_for = getattr(language_service, "diagnostics_for", None)
+        if callable(diagnostics_for):
+            diagnostics.extend(diagnostics_for(artifact.content))
+        if (
+            isinstance(language_service, PythonLangSvc)
+            and not snapshot.code_metadata.get("functions")
+            and artifact.content.strip()
+        ):
             diagnostics.append(
                 Diagnostic(
                     message="Python artifact contains no functions yet.",

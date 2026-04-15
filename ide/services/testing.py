@@ -104,11 +104,16 @@ class TestService:
 
     @staticmethod
     def _body_snippet(lines: list[str], def_line: int) -> str:
-        """Return up to 5 lines after the def line for classification."""
+        """Return up to 5 body lines after the def line for classification."""
         start = def_line  # 1-based → index is def_line (the line after def)
+        base_line = lines[def_line - 1] if 0 <= def_line - 1 < len(lines) else ""
+        base_indent = len(base_line) - len(base_line.lstrip())
         snippet_lines = []
         for line in lines[start: start + 5]:
             stripped = line.strip()
+            indent = len(line) - len(line.lstrip())
+            if stripped.startswith("def ") and indent <= base_indent:
+                break
             if stripped:
                 snippet_lines.append(stripped)
             if len(snippet_lines) >= 3:

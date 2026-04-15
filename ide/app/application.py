@@ -17,7 +17,7 @@ from ide.infrastructure.bscode_store import BSCodeStore
 from ide.presentation.ide_shell import IDEShell
 from ide.services.help import HelpService
 from ide.services.integrations import BuildService, DebugService, RunService, VCSService
-from ide.services.language import LanguageService, PlainTextLangSvc, PythonLangSvc
+from ide.services.language import JavaLangSvc, LanguageService, PlainTextLangSvc, PythonLangSvc
 from ide.services.search import SearchService
 from ide.services.testing import TestService
 from ide.workspace.traceability import TraceabilityService
@@ -65,6 +65,7 @@ _SKIP_DIRS: frozenset[str] = frozenset(
 
 _EXTENSION_LANGUAGE: dict[str, str] = {
     ".py": "python", ".pyw": "python",
+    ".java": "java",
     ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript",
     ".ts": "typescript", ".tsx": "typescript",
 }
@@ -135,6 +136,19 @@ class IDEApplication:
             ),
         )
 
+        java_service = JavaLangSvc()
+        self.language_services["java"] = java_service
+        self.plugin_registry.register_language(
+            "java",
+            java_service,
+            PluginMetadata(
+                name="JavaLangSvc",
+                version="0.1",
+                extension_point="LanguageService",
+                description="Skeletal Java language support for outline implementation.",
+            ),
+        )
+
         plain_service = PlainTextLangSvc()
         for lang in (
             "plain", "javascript", "typescript", "html", "css",
@@ -157,6 +171,11 @@ class IDEApplication:
             for artifact in self._default_artifacts():
                 self.artifact_store.save(artifact)
                 self.project_manager.register_artifact(project, artifact)
+
+    def switch_project(self, project_id: str) -> None:
+        """Switch active project and reset project-local design persistence."""
+        project = self.project_manager.switch_project(project_id)
+        self.bscode_store = BSCodeStore(project.root_path)
 
     def load_diagrams(self) -> dict[str, str]:
         """Return saved diagram content for the active project, keyed by diagram type."""

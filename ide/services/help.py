@@ -80,8 +80,9 @@ _TOPICS: list[HelpTopic] = [
             "The Traceability panel (right dock) lets you create explicit links "
             "between design elements and their code implementations.\n\n"
             "Click 'Add Link' and fill in the design artefact, element name, "
-            "target code artefact, and element name. Links are stored in-project "
-            "and can be reviewed or deleted at any time."
+            "target code artefact, and element name. In this outline "
+            "implementation links are held by the prototype service and can be "
+            "reviewed or deleted during the session."
         ),
     ),
     HelpTopic(
@@ -102,7 +103,7 @@ _TOPICS: list[HelpTopic] = [
         keywords=["version", "history", "revision", "checkpoint", "undo", "restore"],
         content=(
             "Every explicit Ctrl+S creates a revision checkpoint for the active file.\n\n"
-            "View > Version History shows the full checkpoint list with author, "
+            "File > Version History shows the full checkpoint list with author, "
             "timestamp, and message. Select a revision and click 'Restore' to "
             "revert the file to that snapshot."
         ),
@@ -216,7 +217,7 @@ class HelpService:
                 "  • Run > Run Tests                 — execute test suites\n"
                 "  • Analyse > Run Static Analysis   — check diagnostics\n"
                 "  • Edit > Find in Project          — search all artefacts\n"
-                "  • View > Version History          — checkpoint history\n"
+                "  • File > Version History          — checkpoint history\n"
                 "  • Design tab                      — architecture diagrams\n"
                 "  • Right docks                     — collaboration, comments, traceability\n\n"
                 "Press F1 anywhere for contextual help."
