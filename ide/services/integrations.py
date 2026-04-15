@@ -424,8 +424,17 @@ class VCSService:
     def branches(self, project: Project) -> ToolExecutionResult:
         return self._git(project, ["branch", "--all"])
 
+    def add(self, project: Project, pathspec: str = ".") -> ToolExecutionResult:
+        return self._git(project, ["add", pathspec])
+
     def commit(self, project: Project, message: str) -> ToolExecutionResult:
         return self._git(project, ["commit", "-am", message])
+
+    def pull(self, project: Project) -> ToolExecutionResult:
+        return self._git(project, ["pull", "--ff-only"])
+
+    def push(self, project: Project) -> ToolExecutionResult:
+        return self._git(project, ["push"])
 
     def merge(self, project: Project, branch: str) -> ToolExecutionResult:
         return self._git(project, ["merge", branch])

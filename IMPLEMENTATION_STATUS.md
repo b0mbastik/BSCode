@@ -10,23 +10,23 @@ This file uses only two categories:
 | Brief item | Evidence |
 | --- | --- |
 | GUI for user interaction | PySide6 shell with menus, toolbar, tabs, docks, status bar. |
-| Basic editor | Files open in editable tabs with save, autosave, diagnostics, syntax highlighting, and Ctrl+Space completion insertion. |
+| Basic editor | Files open in editable tabs with save, autosave, diagnostics, line numbers, clickable breakpoint gutter, syntax highlighting, and Ctrl+Space completion insertion. |
 | Syntax highlighting | `EditorView` applies keyword highlighting through each language service. |
 | Code completion | `IDEShell` exposes Ctrl+Space completion using `LanguageService.complete()`. |
 | Help facility | Structured help topics and contextual help dialog. |
 | Storage/retrieval of development artefacts | Code files, design diagrams, comments, traceability links, and revision checkpoints persist through files or `.bscode` sidecars. |
-| File explorer | Project explorer scans project files and opens artefacts. |
+| File explorer | Project explorer scans project files, opens artefacts, creates files/folders, renames, copies/pastes, and refreshes when external file changes are detected. |
 | Compiler/interpreter integration | Python files run through the active interpreter; Java files compile/run through local `javac`/`java` when a JDK is installed. |
 | Debugger integration | Active Python files can be debugged with breakpoints, step, continue, stop, stack view, variables view, and captured output. |
 | Static code analysis | Python/Java metadata extraction and diagnostics run through `AnalysisManager`; conformance checks compare declared architecture elements with parsed code elements. |
 | Multiple concurrent projects | Multiple projects can be opened in one session and switched through the project selector. |
 | Testing framework integration | On-disk Python projects run with `unittest discover`; in-memory prototype artefacts use deterministic fallback classification. |
-| Version control systems | Git status, diff, log, branch listing, commit, and merge run through `VCSService` against the active project root. |
+| Version control systems | Git status, diff, log, branch listing, add/stage, commit, pull, push, and merge run through `VCSService` against the active project root. |
 | Incremental architecture/design specification | Design canvas and Mermaid source files provide editable component, layered, deployment, class, and sequence views. |
 | Generate diagrams from code | The IDE can generate Mermaid class diagram text from parsed Python/Java project code into the UML Class design tab. |
 | Static/dynamic analysis workflow | Static diagnostics and conformance checks run after edits; test results feed the dynamic-analysis hook. |
-| Accessible UI basics | Main widgets/actions include accessible names, labels, tooltips, and keyboard shortcuts. |
-| Heterogeneous platform baseline | Python/PySide6 implementation, path abstraction, and no platform-specific required dependency beyond optional local tools. |
+| Accessible UI basics | Main widgets/actions include accessible names, labels, tooltips, keyboard shortcuts, and clickable line-number breakpoints. |
+| Heterogeneous platform baseline | Python/PySide6 implementation, path abstraction, Fusion Qt style, and in-window menus for more consistent macOS/Windows/Linux UI. |
 | Java and Python initial support | Python and Java language services are registered and file types are recognised. |
 | Future language support | `LanguageService`, extension contracts, and `PluginRegistry` provide the extension seam. |
 

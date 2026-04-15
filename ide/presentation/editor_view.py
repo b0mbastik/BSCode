@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QColor, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QLabel,
     QPlainTextEdit,
@@ -30,6 +30,119 @@ class _LanguageHighlighter(QSyntaxHighlighter):
         for start, end, token_type in self.language_service.highlight(text):
             if token_type == "keyword" and end > start:
                 self.setFormat(start, end - start, self.keyword_format)
+
+
+class _LineNumberArea(QWidget):
+    def __init__(self, editor: "CodeEditor") -> None:
+        super().__init__(editor)
+        self.editor = editor
+        self.setAccessibleName("Line number and breakpoint gutter")
+        self.setToolTip("Click a line number to toggle a debugger breakpoint.")
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt override
+        return QSize(self.editor.line_number_area_width(), 0)
+
+    def paintEvent(self, event) -> None:  # noqa: ANN001, N802 - Qt override
+        self.editor.line_number_area_paint_event(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001, N802 - Qt override
+        self.editor.line_number_area_mouse_press(event)
+
+
+class CodeEditor(QPlainTextEdit):
+    """Plain-text editor with a line-number gutter and clickable breakpoints."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.line_number_area = _LineNumberArea(self)
+        self._breakpoints: set[int] = set()
+
+        self.blockCountChanged.connect(self._update_line_number_area_width)
+        self.updateRequest.connect(self._update_line_number_area)
+        self._update_line_number_area_width()
+
+    def breakpoints(self) -> set[int]:
+        return set(self._breakpoints)
+
+    def set_breakpoints(self, breakpoints: set[int]) -> None:
+        self._breakpoints = {line for line in breakpoints if line > 0}
+        self.line_number_area.update()
+
+    def toggle_breakpoint(self, line: int) -> None:
+        if line in self._breakpoints:
+            self._breakpoints.remove(line)
+        elif line > 0:
+            self._breakpoints.add(line)
+        self.line_number_area.update()
+
+    def line_number_area_width(self) -> int:
+        digits = len(str(max(1, self.blockCount())))
+        return 18 + self.fontMetrics().horizontalAdvance("9") * digits
+
+    def resizeEvent(self, event) -> None:  # noqa: ANN001, N802 - Qt override
+        super().resizeEvent(event)
+        contents = self.contentsRect()
+        self.line_number_area.setGeometry(
+            QRect(contents.left(), contents.top(), self.line_number_area_width(), contents.height())
+        )
+
+    def line_number_area_paint_event(self, event) -> None:  # noqa: ANN001
+        painter = QPainter(self.line_number_area)
+        painter.fillRect(event.rect(), QColor(245, 247, 250))
+
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + int(self.blockBoundingRect(block).height())
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                line_number = block_number + 1
+                painter.setPen(QColor(96, 96, 96))
+                painter.drawText(
+                    0,
+                    top,
+                    self.line_number_area.width() - 6,
+                    self.fontMetrics().height(),
+                    Qt.AlignmentFlag.AlignRight,
+                    str(line_number),
+                )
+                if line_number in self._breakpoints:
+                    painter.setBrush(QColor(210, 36, 36))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    radius = 5
+                    painter.drawEllipse(4, top + 4, radius * 2, radius * 2)
+
+            block = block.next()
+            top = bottom
+            bottom = top + int(self.blockBoundingRect(block).height())
+            block_number += 1
+
+    def line_number_area_mouse_press(self, event) -> None:  # noqa: ANN001
+        y = int(event.position().y()) if hasattr(event, "position") else event.y()
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + int(self.blockBoundingRect(block).height())
+        while block.isValid():
+            if top <= y <= bottom:
+                self.toggle_breakpoint(block_number + 1)
+                return
+            block = block.next()
+            top = bottom
+            bottom = top + int(self.blockBoundingRect(block).height())
+            block_number += 1
+
+    def _update_line_number_area_width(self) -> None:
+        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+
+    def _update_line_number_area(self, rect: QRect, dy: int) -> None:
+        if dy:
+            self.line_number_area.scroll(0, dy)
+        else:
+            self.line_number_area.update(0, rect.y(), self.line_number_area.width(), rect.height())
+        if rect.contains(self.viewport().rect()):
+            self._update_line_number_area_width()
 
 
 class EditorView(QWidget):
@@ -68,7 +181,7 @@ class EditorView(QWidget):
             f"Path: {artifact.path or '(in-memory)'}"
         )
 
-        self.editor = QPlainTextEdit()
+        self.editor = CodeEditor()
         self.editor.setTabStopDistance(32)
         self.editor.setPlainText(self.buffer.content)
         self.editor.setAccessibleName(f"Code editor for {artifact.name}")
@@ -124,6 +237,9 @@ class EditorView(QWidget):
         cursor = self.editor.textCursor()
         cursor.insertText(completion)
         self.editor.setTextCursor(cursor)
+
+    def breakpoints(self) -> set[int]:
+        return self.editor.breakpoints()
 
     def _on_text_changed(self) -> None:
         if self._updating_from_model:

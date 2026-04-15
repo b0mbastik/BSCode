@@ -5,12 +5,14 @@
 ```bash
 python3 -m compileall ide main.py
 python3 -m unittest discover -s tests
+QT_QPA_PLATFORM=offscreen .venv/bin/python -c "from PySide6.QtWidgets import QApplication; from ide.app.application import IDEApplication; app=QApplication([]); app.setStyle('Fusion'); ide=IDEApplication(); shell=ide.show(); app.processEvents(); shell.close(); print('ui ok')"
 ```
 
 ## Results
 
 - `python3 -m compileall ide main.py`: passed.
 - `python3 -m unittest discover -s tests`: passed, 16 tests.
+- Offscreen PySide6 shell construction smoke test: passed.
 
 ## Manual Launch
 

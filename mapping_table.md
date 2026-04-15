@@ -3,7 +3,7 @@
 | Architecture element | Design element | Implementation element | Notes |
 | --- | --- | --- | --- |
 | Presentation | IDEShell | `ide.presentation.ide_shell.IDEShell` | Main PySide6 window, menus, docks, tabs, status bar. |
-| Presentation | EditorView | `ide.presentation.editor_view.EditorView` | Code editor with text buffer, syntax highlighting, local operations, and diagnostics rendering. |
+| Presentation | EditorView | `ide.presentation.editor_view.EditorView` | Code editor with text buffer, line numbers, clickable breakpoints, syntax highlighting, local operations, and diagnostics rendering. |
 | Presentation | DiagramCanvas | `ide.presentation.widgets.DiagramCanvas` | Text-based architecture/design editing surface with component, layered, deployment, class, and sequence views. |
 | Presentation | CollabUI | `ide.presentation.widgets.CollabUI` | Presence and collaboration event panel. |
 | Workspace | ProjectManager | `ide.workspace.workspace_services.ProjectManager` | Creates and switches active projects. |
@@ -18,7 +18,7 @@
 | Core IDE Services | JavaLangSvc | `ide.services.language.JavaLangSvc` | Java language service for file recognition, metadata extraction, completion and highlighting. |
 | Core IDE Services | BuildService | `ide.services.integrations.BuildService` | Boundary for project build automation. |
 | Core IDE Services | DebugService | `ide.services.integrations.DebugService` | Runs Python debugger sessions with breakpoints, stepping, stack frames, variables, and output capture. |
-| Core IDE Services | VCSService | `ide.services.integrations.VCSService` | Runs Git status, diff, log, branch, commit, and merge operations in the active project. |
+| Core IDE Services | VCSService | `ide.services.integrations.VCSService` | Runs Git status, diff, log, branch, add/stage, commit, pull, push, and merge operations in the active project. |
 | Core IDE Services | RunService | `ide.services.integrations.RunService` | Runs Python files and compiles/runs Java files through local toolchains. |
 | Core IDE Services | TestService | `ide.services.testing.TestService` | Runs real `unittest discover` for on-disk Python projects, with an in-memory fallback for prototype artefacts. |
 | Core IDE Services | SearchService | `ide.services.search.SearchService` | Searches project artifacts and live design diagram text. |

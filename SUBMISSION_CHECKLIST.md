@@ -9,6 +9,10 @@
 - [x] Java outline language service included: `JavaLangSvc`.
 - [x] Test, search, help, traceability, comments, revision history, collaboration presence, debug, VCS, persistence, network, and plugin seams represented.
 - [x] Python debugger controls and Git VCS operations implemented at prototype scope.
+- [x] Editor line numbers and clickable breakpoint gutter implemented.
+- [x] Project explorer create/rename/copy/paste and external refresh implemented.
+- [x] Git add/stage, pull, and push operations implemented.
+- [x] Cross-platform UI consistency improved with Fusion style and in-window menus.
 - [x] Implementation limitations are explicit and do not claim production completeness.
 
 ## Design Artefacts

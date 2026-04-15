@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QDockWidget,
     QPlainTextEdit,
@@ -133,6 +135,8 @@ class IDEShell(QMainWindow):
         self.active_editor: EditorView | None = None
         self._last_diagnostics: list[Diagnostic] = []
         self._project_selector_updating = False
+        self._copied_path: Path | None = None
+        self._last_file_snapshot: set[str] = set()
 
         self.setWindowTitle("Architecture Driven Collaborative IDE")
         self.resize(1400, 900)
@@ -146,11 +150,15 @@ class IDEShell(QMainWindow):
         self.debug_timer = QTimer(self)
         self.debug_timer.timeout.connect(self._poll_debugger)
 
+        self.filesystem_timer = QTimer(self)
+        self.filesystem_timer.timeout.connect(self._refresh_project_if_changed)
+
         self._build_ui()
 
         # Sync status from the network layer.
         self.application.network_sync.add_status_listener(self._on_sync_status_changed)
         self.debug_timer.start(150)
+        self.filesystem_timer.start(2500)
 
         self.statusBar().showMessage("Desktop IDE shell ready.  Press F1 for help.")
         self._refresh_project_selector()
@@ -200,6 +208,26 @@ class IDEShell(QMainWindow):
         self.version_history_action = QAction("Version History…", self)
         self.version_history_action.setToolTip("Show revision history for the active file")
         self.version_history_action.triggered.connect(self.show_version_history)
+
+        self.new_file_action = QAction("New File…", self)
+        self.new_file_action.setToolTip("Create a new file in the selected project folder")
+        self.new_file_action.triggered.connect(self.create_project_file)
+
+        self.new_folder_action = QAction("New Folder…", self)
+        self.new_folder_action.setToolTip("Create a new folder in the selected project folder")
+        self.new_folder_action.triggered.connect(self.create_project_folder)
+
+        self.rename_project_item_action = QAction("Rename…", self)
+        self.rename_project_item_action.triggered.connect(self.rename_project_item)
+
+        self.copy_project_item_action = QAction("Copy", self)
+        self.copy_project_item_action.triggered.connect(self.copy_project_item)
+
+        self.paste_project_item_action = QAction("Paste", self)
+        self.paste_project_item_action.triggered.connect(self.paste_project_item)
+
+        self.refresh_project_action = QAction("Refresh Explorer", self)
+        self.refresh_project_action.triggered.connect(self.refresh_project_from_disk)
 
         # Edit
         self.find_in_project_action = QAction("Find in Project…", self)
@@ -273,9 +301,18 @@ class IDEShell(QMainWindow):
         self.git_branches_action = QAction("Branches", self)
         self.git_branches_action.triggered.connect(self.git_branches)
 
+        self.git_add_action = QAction("Add / Stage…", self)
+        self.git_add_action.triggered.connect(self.git_add)
+
         self.commit_action = QAction("Commit", self)
         self.commit_action.setToolTip("Commit current changes via the VCS service")
         self.commit_action.triggered.connect(self.commit)
+
+        self.git_pull_action = QAction("Pull", self)
+        self.git_pull_action.triggered.connect(self.git_pull)
+
+        self.git_push_action = QAction("Push", self)
+        self.git_push_action.triggered.connect(self.git_push)
 
         self.git_merge_action = QAction("Merge Branch…", self)
         self.git_merge_action.triggered.connect(self.git_merge)
@@ -294,11 +331,16 @@ class IDEShell(QMainWindow):
         self.about_action.triggered.connect(self.about)
 
     def _create_menu_bar(self) -> None:
+        self.menuBar().setNativeMenuBar(False)
         file_menu = self.menuBar().addMenu("&File")
         file_menu.setAccessibleName("File menu")
         file_menu.addAction(self.new_project_action)
         file_menu.addAction(self.open_project_action)
         file_menu.addAction(self.open_file_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.new_file_action)
+        file_menu.addAction(self.new_folder_action)
+        file_menu.addAction(self.refresh_project_action)
         file_menu.addSeparator()
         file_menu.addAction(self.save_artifact_action)
         file_menu.addAction(self.close_tab_action)
@@ -334,7 +376,10 @@ class IDEShell(QMainWindow):
         vcs_menu.addAction(self.git_log_action)
         vcs_menu.addAction(self.git_branches_action)
         vcs_menu.addSeparator()
+        vcs_menu.addAction(self.git_add_action)
         vcs_menu.addAction(self.commit_action)
+        vcs_menu.addAction(self.git_pull_action)
+        vcs_menu.addAction(self.git_push_action)
         vcs_menu.addAction(self.git_merge_action)
 
         help_menu = self.menuBar().addMenu("&Help")
@@ -408,6 +453,8 @@ class IDEShell(QMainWindow):
         self.project_tree.setAccessibleName("Project Explorer tree")
         self.project_tree.setToolTip("Double-click a file to open it in the editor.")
         self.project_tree.itemDoubleClicked.connect(self._open_tree_item)
+        self.project_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.project_tree.customContextMenuRequested.connect(self._show_project_context_menu)
         project_dock = QDockWidget("Project Explorer", self)
         project_dock.setAccessibleName("Project Explorer dock")
         project_dock.setWidget(self.project_tree)
@@ -632,6 +679,128 @@ class IDEShell(QMainWindow):
         if idx >= 0:
             self._on_tab_close_requested(idx)
 
+    # ------------------------------------------------------------------
+    # Project explorer file operations
+    # ------------------------------------------------------------------
+
+    def create_project_file(self) -> None:
+        directory = self._selected_directory()
+        if directory is None:
+            return
+        name, accepted = QInputDialog.getText(self, "New File", "File name:")
+        if not accepted or not name.strip():
+            return
+        path = directory / name.strip()
+        if path.exists():
+            QMessageBox.warning(self, "New File", f"Already exists:\n{path}")
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+        self.refresh_project_from_disk()
+        artifact = self.application.open_file(path)
+        if artifact is not None:
+            self.open_artifact(artifact)
+
+    def create_project_folder(self) -> None:
+        directory = self._selected_directory()
+        if directory is None:
+            return
+        name, accepted = QInputDialog.getText(self, "New Folder", "Folder name:")
+        if not accepted or not name.strip():
+            return
+        path = directory / name.strip()
+        if path.exists():
+            QMessageBox.warning(self, "New Folder", f"Already exists:\n{path}")
+            return
+        path.mkdir(parents=True)
+        self.refresh_project_from_disk()
+
+    def rename_project_item(self) -> None:
+        path = self._selected_path()
+        if path is None:
+            return
+        new_name, accepted = QInputDialog.getText(self, "Rename", "New name:", text=path.name)
+        if not accepted or not new_name.strip() or new_name.strip() == path.name:
+            return
+        target = path.with_name(new_name.strip())
+        if target.exists():
+            QMessageBox.warning(self, "Rename", f"Already exists:\n{target}")
+            return
+        path.rename(target)
+        self._close_tabs_for_paths({path})
+        self.refresh_project_from_disk()
+
+    def copy_project_item(self) -> None:
+        path = self._selected_path()
+        if path is not None:
+            self._copied_path = path
+            self.statusBar().showMessage(f"Copied {path.name}")
+
+    def paste_project_item(self) -> None:
+        if self._copied_path is None or not self._copied_path.exists():
+            return
+        directory = self._selected_directory()
+        if directory is None:
+            return
+        target = directory / self._copied_path.name
+        if target.exists():
+            target = self._unique_copy_path(target)
+        if self._copied_path.is_dir():
+            shutil.copytree(self._copied_path, target)
+        else:
+            shutil.copy2(self._copied_path, target)
+        self.refresh_project_from_disk()
+        self.statusBar().showMessage(f"Pasted {target.name}")
+
+    def refresh_project_from_disk(self) -> None:
+        self.application.refresh_active_project_from_disk()
+        self.refresh_project_explorer()
+        self._last_file_snapshot = self._filesystem_snapshot()
+
+    def _show_project_context_menu(self, pos) -> None:  # noqa: ANN001
+        self.project_tree.setCurrentItem(self.project_tree.itemAt(pos))
+        menu = QMenu(self)
+        menu.addAction(self.new_file_action)
+        menu.addAction(self.new_folder_action)
+        menu.addSeparator()
+        menu.addAction(self.rename_project_item_action)
+        menu.addAction(self.copy_project_item_action)
+        self.paste_project_item_action.setEnabled(self._copied_path is not None)
+        menu.addAction(self.paste_project_item_action)
+        menu.addSeparator()
+        menu.addAction(self.refresh_project_action)
+        menu.exec(self.project_tree.viewport().mapToGlobal(pos))
+
+    def _selected_path(self) -> Path | None:
+        item = self.project_tree.currentItem()
+        if item is None:
+            project = self.application.project_manager.active_project
+            return project.root_path if project is not None else None
+        raw = item.data(0, Qt.ItemDataRole.UserRole)
+        return Path(raw) if raw else None
+
+    def _selected_directory(self) -> Path | None:
+        path = self._selected_path()
+        if path is None:
+            project = self.application.project_manager.active_project
+            return project.root_path if project is not None else None
+        return path if path.is_dir() else path.parent
+
+    @staticmethod
+    def _unique_copy_path(path: Path) -> Path:
+        for index in range(1, 1000):
+            candidate = path.with_name(f"{path.stem} copy {index}{path.suffix}")
+            if not candidate.exists():
+                return candidate
+        return path.with_name(f"{path.stem} copy{path.suffix}")
+
+    def _close_tabs_for_paths(self, paths: set[Path]) -> None:
+        for index in reversed(range(self.tabs.count())):
+            widget = self.tabs.widget(index)
+            if isinstance(widget, EditorView) and widget.artifact.path in paths:
+                self.tabs.removeTab(index)
+                widget.deleteLater()
+
     def run_build(self) -> None:
         project = self.application.project_manager.active_project
         if project is None:
@@ -656,7 +825,7 @@ class IDEShell(QMainWindow):
         if project is None:
             return
         self.application.artifact_store.save(artifact)
-        breakpoints = self._parse_breakpoints()
+        breakpoints = self.active_editor.breakpoints() | self._parse_breakpoints()
         result = self.application.debug_service.start_debug_session(
             project,
             artifact.path,
@@ -729,6 +898,16 @@ class IDEShell(QMainWindow):
     def git_branches(self) -> None:
         self._run_vcs_command("branches")
 
+    def git_add(self) -> None:
+        project = self.application.project_manager.active_project
+        if project is None:
+            return
+        pathspec, accepted = QInputDialog.getText(self, "Git Add", "Pathspec to stage:", text=".")
+        if not accepted or not pathspec.strip():
+            return
+        result = self.application.vcs_service.add(project, pathspec.strip())
+        self._show_tool_result(result, "Git add")
+
     def commit(self) -> None:
         project = self.application.project_manager.active_project
         if project is None:
@@ -738,6 +917,12 @@ class IDEShell(QMainWindow):
             return
         result = self.application.vcs_service.commit(project, message.strip())
         self._show_tool_result(result, "Git commit")
+
+    def git_pull(self) -> None:
+        self._run_vcs_command("pull")
+
+    def git_push(self) -> None:
+        self._run_vcs_command("push")
 
     def git_merge(self) -> None:
         project = self.application.project_manager.active_project
@@ -1254,6 +1439,7 @@ class IDEShell(QMainWindow):
             return
 
         root_item = QTreeWidgetItem([project.name])
+        root_item.setData(0, Qt.ItemDataRole.UserRole, str(project.root_path))
         self.project_tree.addTopLevelItem(root_item)
 
         artifacts = self.application.artifact_store.list_for_project(project)
@@ -1274,16 +1460,45 @@ class IDEShell(QMainWindow):
                 dir_key = "/".join(parts[: depth + 1])
                 if dir_key not in dir_items:
                     dir_node = QTreeWidgetItem([part])
+                    dir_path = project.root_path.joinpath(*parts[: depth + 1])
+                    dir_node.setData(0, Qt.ItemDataRole.UserRole, str(dir_path))
                     parent.addChild(dir_node)
                     dir_items[dir_key] = dir_node
                 parent = dir_items[dir_key]
 
             file_item = QTreeWidgetItem([parts[-1]])
-            file_item.setData(0, Qt.ItemDataRole.UserRole, artifact.artifact_id)
+            file_item.setData(0, Qt.ItemDataRole.UserRole, str(artifact.path or artifact.name))
+            file_item.setData(0, int(Qt.ItemDataRole.UserRole) + 1, artifact.artifact_id)
             file_item.setToolTip(0, str(artifact.path or artifact.name))
             parent.addChild(file_item)
 
         root_item.setExpanded(True)
+        self._last_file_snapshot = self._filesystem_snapshot()
+
+    def _refresh_project_if_changed(self) -> None:
+        snapshot = self._filesystem_snapshot()
+        if snapshot != self._last_file_snapshot:
+            self.refresh_project_from_disk()
+
+    def _filesystem_snapshot(self) -> set[str]:
+        project = self.application.project_manager.active_project
+        if project is None or not project.root_path.is_dir():
+            return set()
+        skip_dirs = {
+            ".bscode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache",
+            "node_modules", ".venv", "venv", "dist", "build",
+        }
+        snapshot: set[str] = set()
+        for path in project.root_path.rglob("*"):
+            try:
+                rel = path.relative_to(project.root_path)
+            except ValueError:
+                continue
+            if any(part in skip_dirs or part.startswith(".") for part in rel.parts[:-1]):
+                continue
+            if path.is_file():
+                snapshot.add(str(rel))
+        return snapshot
 
     # ------------------------------------------------------------------
     # Tab and editor management
@@ -1299,6 +1514,9 @@ class IDEShell(QMainWindow):
             )
             self.collab_ui.set_peers(self.application.collab_service.peers)
             self._refresh_comments(widget.artifact.artifact_id)
+            self.breakpoint_field.setText(
+                ", ".join(str(line) for line in sorted(widget.breakpoints()))
+            )
         else:
             self.active_editor = None
 
@@ -1313,7 +1531,7 @@ class IDEShell(QMainWindow):
             widget.deleteLater()
 
     def _open_tree_item(self, item: QTreeWidgetItem) -> None:
-        artifact_id = item.data(0, Qt.ItemDataRole.UserRole)
+        artifact_id = item.data(0, int(Qt.ItemDataRole.UserRole) + 1)
         if artifact_id:
             artifact = self.application.artifact_store.load(str(artifact_id))
             if artifact is not None:

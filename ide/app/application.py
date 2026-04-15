@@ -179,6 +179,13 @@ class IDEApplication:
         self.bscode_store = BSCodeStore(project.root_path)
         self._load_project_state()
 
+    def refresh_active_project_from_disk(self) -> None:
+        project = self.project_manager.active_project
+        if project is None or not project.root_path.is_dir():
+            return
+        project.artifacts.clear()
+        self._scan_project_directory(project, project.root_path)
+
     def load_diagrams(self) -> dict[str, str]:
         """Return saved diagram content for the active project, keyed by diagram type."""
         if self.bscode_store is None:
