@@ -96,6 +96,24 @@ class AnalysisAndTestingTests(unittest.TestCase):
         self.assertIsNotNone(static.snapshot)
         self.assertEqual(conformance.summary, "Conformance check completed using placeholder metadata.")
 
+    def test_static_diagnostics_are_tied_to_source_artifact(self) -> None:
+        manager = AnalysisManager(
+            language_services={"python": PythonLangSvc()},
+            static_analyser=PythonStaticAnalyser(),
+            conformance_checker=ConformanceChecker(),
+            dyn_analyser=StubDynAnalyser(),
+        )
+        artifact = Artifact(
+            name="todo.py",
+            artifact_type=ArtifactType.CODE,
+            language="python",
+            content="def run():\n    # TODO fix\n",
+        )
+
+        result = manager.run_static_analysis([artifact])
+
+        self.assertTrue(any(d.artifact_id == artifact.artifact_id for d in result.diagnostics))
+
     def test_test_service_classifies_pass_fail_skip(self) -> None:
         service = TestService()
         project = ProjectManager().create_project("Tests", Path("/tmp/tests"))

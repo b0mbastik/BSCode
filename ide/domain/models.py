@@ -100,6 +100,7 @@ class Diagnostic:
     line: int = 1
     column: int = 1
     source: str = "analysis"
+    artifact_id: str | None = None
 
 
 @dataclass(slots=True)

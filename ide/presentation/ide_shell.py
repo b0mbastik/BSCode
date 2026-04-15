@@ -1169,11 +1169,15 @@ class IDEShell(QMainWindow):
     def _render_diagnostics(self, diagnostics: list[Diagnostic]) -> None:
         self.diagnostics_tree.clear()
         for diagnostic in diagnostics:
+            artifact_label = "project"
+            if diagnostic.artifact_id:
+                artifact = self.application.artifact_store.load(diagnostic.artifact_id)
+                artifact_label = artifact.name if artifact is not None else diagnostic.artifact_id[:8]
             self.diagnostics_tree.addTopLevelItem(
                 QTreeWidgetItem([
                     diagnostic.severity.value,
                     str(diagnostic.line),
-                    diagnostic.source,
+                    f"{diagnostic.source} / {artifact_label}",
                     diagnostic.message,
                 ])
             )

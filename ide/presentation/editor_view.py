@@ -97,8 +97,14 @@ class EditorView(QWidget):
     def render_diagnostics(self, diagnostics: list[Diagnostic]) -> None:
         selections: list[QTextEdit.ExtraSelection] = []
         for diagnostic in diagnostics:
+            if diagnostic.artifact_id != self.artifact.artifact_id:
+                continue
+            if diagnostic.line <= 0:
+                continue
             selection = QTextEdit.ExtraSelection()
             block = self.editor.document().findBlockByLineNumber(max(0, diagnostic.line - 1))
+            if not block.isValid():
+                continue
             cursor = QTextCursor(block)
             cursor.select(QTextCursor.SelectionType.LineUnderCursor)
             selection.cursor = cursor

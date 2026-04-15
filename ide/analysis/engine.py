@@ -32,18 +32,22 @@ class PythonStaticAnalyser(StaticAnalyser):
         diagnostics_for = getattr(language_service, "diagnostics_for", None)
         if callable(diagnostics_for):
             diagnostics.extend(diagnostics_for(artifact.content))
+        for diagnostic in diagnostics:
+            diagnostic.artifact_id = artifact.artifact_id
         if (
             isinstance(language_service, PythonLangSvc)
             and not snapshot.code_metadata.get("functions")
             and artifact.content.strip()
         ):
             diagnostics.append(
-                Diagnostic(
-                    message="Python artifact contains no functions yet.",
-                    severity=DiagnosticSeverity.INFO,
-                    source="StaticAnalyser",
+                    Diagnostic(
+                        message="Python artifact contains no functions yet.",
+                        severity=DiagnosticSeverity.INFO,
+                        line=0,
+                        source="StaticAnalyser",
+                        artifact_id=artifact.artifact_id,
+                    )
                 )
-            )
         return AnalysisResult(
             diagnostics=diagnostics,
             summary=f"Static analysis completed for {artifact.name}.",
@@ -66,6 +70,7 @@ class ConformanceChecker:
                 Diagnostic(
                     message="No code elements currently map to declared architecture components.",
                     severity=DiagnosticSeverity.WARNING,
+                    line=0,
                     source="ConformanceChecker",
                 )
             )
@@ -103,6 +108,7 @@ class StubDynAnalyser(DynAnalyser):
                 Diagnostic(
                     message="Dynamic analysis hook is ready for test-time profiling integration.",
                     severity=DiagnosticSeverity.INFO,
+                    line=0,
                     source="DynAnalyser",
                 )
             ],
@@ -120,6 +126,7 @@ class StubDynAnalyser(DynAnalyser):
                             severity=DiagnosticSeverity.ERROR,
                             line=case.line or 1,
                             source="DynAnalyser",
+                            artifact_id=case.artifact_id,
                         )
                     )
                 elif case.status is TestStatus.ERROR:
@@ -129,6 +136,7 @@ class StubDynAnalyser(DynAnalyser):
                             severity=DiagnosticSeverity.ERROR,
                             line=case.line or 1,
                             source="DynAnalyser",
+                            artifact_id=case.artifact_id,
                         )
                     )
         summary = (
@@ -181,6 +189,7 @@ class AnalysisManager:
                     Diagnostic(
                         message=f"No language service registered for {language_name}.",
                         severity=DiagnosticSeverity.WARNING,
+                        line=0,
                         source="AnalysisManager",
                     )
                 )
@@ -198,6 +207,7 @@ class AnalysisManager:
                 Diagnostic(
                     message="No static analysis issues found by stub analyser.",
                     severity=DiagnosticSeverity.INFO,
+                    line=0,
                     source="AnalysisManager",
                 )
             )
@@ -229,6 +239,7 @@ class AnalysisManager:
                     Diagnostic(
                         message="No analysis snapshot available for conformance checking.",
                         severity=DiagnosticSeverity.WARNING,
+                        line=0,
                         source="AnalysisManager",
                     )
                 ],
