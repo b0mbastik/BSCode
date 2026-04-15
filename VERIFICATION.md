@@ -13,6 +13,7 @@ QT_QPA_PLATFORM=offscreen .venv/bin/python -c "from PySide6.QtWidgets import QAp
 - `python3 -m compileall ide main.py`: passed.
 - `python3 -m unittest discover -s tests`: passed, 16 tests.
 - Offscreen PySide6 shell construction smoke test: passed.
+- Offscreen smoke test confirmed Project Explorer and Diagnostics/Output docks are visible/restorable at startup.
 
 ## Manual Launch
 

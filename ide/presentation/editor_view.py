@@ -88,7 +88,7 @@ class CodeEditor(QPlainTextEdit):
 
     def line_number_area_paint_event(self, event) -> None:  # noqa: ANN001
         painter = QPainter(self.line_number_area)
-        painter.fillRect(event.rect(), QColor(245, 247, 250))
+        painter.fillRect(event.rect(), self.palette().base())
 
         block = self.firstVisibleBlock()
         block_number = block.blockNumber()
@@ -98,7 +98,7 @@ class CodeEditor(QPlainTextEdit):
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 line_number = block_number + 1
-                painter.setPen(QColor(96, 96, 96))
+                painter.setPen(QColor(120, 120, 120))
                 painter.drawText(
                     0,
                     top,

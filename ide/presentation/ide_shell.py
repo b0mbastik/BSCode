@@ -154,6 +154,7 @@ class IDEShell(QMainWindow):
         self.filesystem_timer.timeout.connect(self._refresh_project_if_changed)
 
         self._build_ui()
+        self._apply_initial_layout()
 
         # Sync status from the network layer.
         self.application.network_sync.add_status_listener(self._on_sync_status_changed)
@@ -288,6 +289,26 @@ class IDEShell(QMainWindow):
         self.generate_class_diagram_action.setToolTip("Generate Mermaid class diagram text from parsed project code")
         self.generate_class_diagram_action.triggered.connect(self.generate_class_diagram_from_code)
 
+        self.show_project_explorer_action = QAction("Project Explorer", self)
+        self.show_project_explorer_action.setCheckable(True)
+        self.show_project_explorer_action.setChecked(True)
+
+        self.show_collaboration_action = QAction("Collaboration", self)
+        self.show_collaboration_action.setCheckable(True)
+        self.show_collaboration_action.setChecked(True)
+
+        self.show_comments_action = QAction("Comments", self)
+        self.show_comments_action.setCheckable(True)
+        self.show_comments_action.setChecked(True)
+
+        self.show_traceability_action = QAction("Traceability", self)
+        self.show_traceability_action.setCheckable(True)
+        self.show_traceability_action.setChecked(True)
+
+        self.show_bottom_panel_action = QAction("Diagnostics / Output", self)
+        self.show_bottom_panel_action.setCheckable(True)
+        self.show_bottom_panel_action.setChecked(True)
+
         # VCS
         self.git_status_action = QAction("Status", self)
         self.git_status_action.triggered.connect(self.git_status)
@@ -368,6 +389,15 @@ class IDEShell(QMainWindow):
         analyse_menu.setAccessibleName("Analyse menu")
         analyse_menu.addAction(self.static_analysis_action)
         analyse_menu.addAction(self.generate_class_diagram_action)
+
+        view_menu = self.menuBar().addMenu("&View")
+        view_menu.setAccessibleName("View menu")
+        view_menu.addAction(self.show_project_explorer_action)
+        view_menu.addAction(self.show_collaboration_action)
+        view_menu.addAction(self.show_comments_action)
+        view_menu.addAction(self.show_traceability_action)
+        view_menu.addSeparator()
+        view_menu.addAction(self.show_bottom_panel_action)
 
         vcs_menu = self.menuBar().addMenu("&VCS")
         vcs_menu.setAccessibleName("VCS menu")
@@ -450,24 +480,31 @@ class IDEShell(QMainWindow):
     def _create_left_dock(self) -> None:
         self.project_tree = QTreeWidget()
         self.project_tree.setHeaderLabels(["Project Explorer"])
+        self.project_tree.setHeaderHidden(True)
         self.project_tree.setAccessibleName("Project Explorer tree")
         self.project_tree.setToolTip("Double-click a file to open it in the editor.")
         self.project_tree.itemDoubleClicked.connect(self._open_tree_item)
         self.project_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.project_tree.customContextMenuRequested.connect(self._show_project_context_menu)
-        project_dock = QDockWidget("Project Explorer", self)
-        project_dock.setAccessibleName("Project Explorer dock")
-        project_dock.setWidget(self.project_tree)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, project_dock)
+        self.project_dock = QDockWidget("Project Explorer", self)
+        self.project_dock.setAccessibleName("Project Explorer dock")
+        self.project_dock.setObjectName("ProjectExplorerDock")
+        self.project_dock.setWidget(self.project_tree)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
+        self.show_project_explorer_action.triggered.connect(self.project_dock.setVisible)
+        self.project_dock.visibilityChanged.connect(self.show_project_explorer_action.setChecked)
 
     def _create_right_docks(self) -> None:
         # --- Collaboration ---
         self.collab_ui = CollabUI()
         self.collab_ui.set_peers(self.application.collab_service.peers)
-        collab_dock = QDockWidget("Collaboration", self)
-        collab_dock.setAccessibleName("Collaboration panel dock")
-        collab_dock.setWidget(self.collab_ui)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, collab_dock)
+        self.collab_dock = QDockWidget("Collaboration", self)
+        self.collab_dock.setAccessibleName("Collaboration panel dock")
+        self.collab_dock.setObjectName("CollaborationDock")
+        self.collab_dock.setWidget(self.collab_ui)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.collab_dock)
+        self.show_collaboration_action.triggered.connect(self.collab_dock.setVisible)
+        self.collab_dock.visibilityChanged.connect(self.show_collaboration_action.setChecked)
 
         # --- Comments ---
         comments_widget = QWidget()
@@ -483,11 +520,14 @@ class IDEShell(QMainWindow):
         add_comment_btn.clicked.connect(self.add_comment)
         comments_layout.addWidget(self.comments_tree)
         comments_layout.addWidget(add_comment_btn)
-        comments_dock = QDockWidget("Comments", self)
-        comments_dock.setAccessibleName("Comments dock")
-        comments_dock.setWidget(comments_widget)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, comments_dock)
-        self.tabifyDockWidget(collab_dock, comments_dock)
+        self.comments_dock = QDockWidget("Comments", self)
+        self.comments_dock.setAccessibleName("Comments dock")
+        self.comments_dock.setObjectName("CommentsDock")
+        self.comments_dock.setWidget(comments_widget)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.comments_dock)
+        self.show_comments_action.triggered.connect(self.comments_dock.setVisible)
+        self.comments_dock.visibilityChanged.connect(self.show_comments_action.setChecked)
+        self.tabifyDockWidget(self.collab_dock, self.comments_dock)
 
         # --- Traceability ---
         trace_widget = QWidget()
@@ -512,13 +552,16 @@ class IDEShell(QMainWindow):
         trace_btn_layout.addWidget(remove_link_btn)
         trace_layout.addWidget(self.trace_tree)
         trace_layout.addWidget(trace_btn_row)
-        trace_dock = QDockWidget("Traceability", self)
-        trace_dock.setAccessibleName("Traceability dock")
-        trace_dock.setWidget(trace_widget)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, trace_dock)
-        self.tabifyDockWidget(comments_dock, trace_dock)
+        self.trace_dock = QDockWidget("Traceability", self)
+        self.trace_dock.setAccessibleName("Traceability dock")
+        self.trace_dock.setObjectName("TraceabilityDock")
+        self.trace_dock.setWidget(trace_widget)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.trace_dock)
+        self.show_traceability_action.triggered.connect(self.trace_dock.setVisible)
+        self.trace_dock.visibilityChanged.connect(self.show_traceability_action.setChecked)
+        self.tabifyDockWidget(self.comments_dock, self.trace_dock)
 
-        collab_dock.raise_()
+        self.collab_dock.raise_()
 
     def _create_bottom_dock(self) -> None:
         self.bottom_tabs = QTabWidget()
@@ -595,10 +638,13 @@ class IDEShell(QMainWindow):
         debug_layout.addWidget(self.debug_output_view)
         self.bottom_tabs.addTab(debug_widget, "Debugger")
 
-        bottom_dock = QDockWidget("Diagnostics / Output", self)
-        bottom_dock.setAccessibleName("Bottom panel dock")
-        bottom_dock.setWidget(self.bottom_tabs)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, bottom_dock)
+        self.bottom_dock = QDockWidget("Diagnostics / Output", self)
+        self.bottom_dock.setAccessibleName("Bottom panel dock")
+        self.bottom_dock.setObjectName("DiagnosticsOutputDock")
+        self.bottom_dock.setWidget(self.bottom_tabs)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.bottom_dock)
+        self.show_bottom_panel_action.triggered.connect(self.bottom_dock.setVisible)
+        self.bottom_dock.visibilityChanged.connect(self.show_bottom_panel_action.setChecked)
 
     def _create_status_bar(self) -> None:
         sb = QStatusBar(self)
@@ -610,6 +656,19 @@ class IDEShell(QMainWindow):
             "Current collaboration sync status: idle / pending / syncing / conflict / error"
         )
         sb.addPermanentWidget(self.sync_status_label)
+
+    def _apply_initial_layout(self) -> None:
+        """Keep the bottom dock useful without letting it dominate startup."""
+        self.resizeDocks(
+            [self.bottom_dock],
+            [max(220, self.height() // 3)],
+            Qt.Orientation.Vertical,
+        )
+        self.resizeDocks(
+            [self.project_dock],
+            [260],
+            Qt.Orientation.Horizontal,
+        )
 
     # ------------------------------------------------------------------
     # File / project actions
