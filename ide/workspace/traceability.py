@@ -26,22 +26,3 @@ class TraceabilityService:
 
     def replace_all(self, links: list[TraceLink]) -> None:
         self._links = {link.link_id: link for link in links}
-
-    def get_links_for_design(self, design_artifact_id: str) -> list[TraceLink]:
-        return [
-            link for link in self._links.values()
-            if link.design_artifact_id == design_artifact_id
-        ]
-
-    def get_links_for_code(self, code_artifact_id: str) -> list[TraceLink]:
-        return [
-            link for link in self._links.values()
-            if link.code_artifact_id == code_artifact_id
-        ]
-
-    def get_links_for_artifact(self, artifact_id: str) -> list[TraceLink]:
-        """Return all links that mention *artifact_id* on either side."""
-        return [
-            link for link in self._links.values()
-            if link.design_artifact_id == artifact_id or link.code_artifact_id == artifact_id
-        ]

@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import ast
+import keyword
 import re
 from typing import Protocol
 
-from ide.domain.models import AnalysisSnapshot, Diagnostic, DiagnosticSeverity
+from ide.domain.models import AnalysisSnapshot, CompletionItem, CompletionItemKind
 
 
 class LanguageService(Protocol):
-    def complete(self, source: str, line: int, column: int) -> list[str]:
-        """Completion extension point; currently intentionally unimplemented."""
+    def complete(
+        self,
+        source: str,
+        line: int,
+        column: int,
+        project_symbols: list[CompletionItem] | None = None,
+    ) -> list[CompletionItem]:
+        """Return lightweight completion candidates for a source position."""
         ...
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
@@ -30,16 +37,81 @@ def _keyword_spans(source: str, keywords: set[str]) -> list[tuple[int, int, str]
 
 
 def _todo_lines(lines: list[str]) -> list[int]:
-    return [index + 1 for index, line in enumerate(lines) if "TODO" in line]
+    return [
+        index + 1
+        for index, line in enumerate(lines)
+        if "TODO" in line or "FIXME" in line
+    ]
+
+
+def _prefix_at(source: str, line: int, column: int) -> str:
+    lines = source.splitlines()
+    if line <= 0 or line > len(lines):
+        return ""
+    before_cursor = lines[line - 1][: max(0, column - 1)]
+    match = re.search(r"[A-Za-z_][A-Za-z0-9_]*$", before_cursor)
+    return match.group(0) if match else ""
+
+
+def _dedupe_and_filter(
+    items: list[CompletionItem],
+    prefix: str,
+    limit: int = 40,
+) -> list[CompletionItem]:
+    seen: set[str] = set()
+    results: list[CompletionItem] = []
+    normalized_prefix = prefix.lower()
+    for item in items:
+        if not item.label or item.label in seen:
+            continue
+        if normalized_prefix and not item.label.lower().startswith(normalized_prefix):
+            continue
+        seen.add(item.label)
+        results.append(item)
+        if len(results) >= limit:
+            break
+    return results
+
+
+_IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
 
 class PythonLangSvc:
     """Minimal concrete language service for the Python-only prototype."""
 
-    keywords = {"class", "def", "from", "import", "return", "if", "else", "for", "while"}
+    keywords = set(keyword.kwlist)
 
-    def complete(self, source: str, line: int, column: int) -> list[str]:
-        return []
+    def complete(
+        self,
+        source: str,
+        line: int,
+        column: int,
+        project_symbols: list[CompletionItem] | None = None,
+    ) -> list[CompletionItem]:
+        prefix = _prefix_at(source, line, column)
+        snapshot = self.parse(source, "completion")
+        items = [
+            CompletionItem(label=name, kind=CompletionItemKind.KEYWORD)
+            for name in sorted(self.keywords)
+        ]
+        items.extend(
+            CompletionItem(label=name, kind=CompletionItemKind.CLASS)
+            for name in snapshot.code_metadata.get("classes", [])
+        )
+        items.extend(
+            CompletionItem(label=name, kind=CompletionItemKind.FUNCTION)
+            for name in snapshot.code_metadata.get("functions", [])
+        )
+        items.extend(
+            CompletionItem(label=name, kind=CompletionItemKind.IMPORT)
+            for name in snapshot.code_metadata.get("imports", [])
+        )
+        items.extend(
+            CompletionItem(label=name, kind=CompletionItemKind.VARIABLE)
+            for name in snapshot.code_metadata.get("identifiers", [])
+        )
+        items.extend(project_symbols or [])
+        return _dedupe_and_filter(items, prefix)
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
         return _keyword_spans(source, self.keywords)
@@ -48,27 +120,23 @@ class PythonLangSvc:
         lines = source.splitlines()
         functions: list[str] = []
         classes: list[str] = []
-        methods: list[str] = []
-        class_methods: dict[str, list[str]] = {}
-        bases: dict[str, list[str]] = {}
+        imports: list[str] = []
+        identifiers: set[str] = set()
         try:
             tree = ast.parse(source)
-            for node in tree.body:
+            for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
                     functions.append(node.name)
                 elif isinstance(node, ast.ClassDef):
                     classes.append(node.name)
-                    bases[node.name] = [
-                        self._base_name(base)
-                        for base in node.bases
-                        if self._base_name(base)
-                    ]
-                    class_methods[node.name] = [
-                        child.name
-                        for child in node.body
-                        if isinstance(child, ast.FunctionDef)
-                    ]
-                    methods.extend(class_methods[node.name])
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports.append(alias.asname or alias.name.split(".", 1)[0])
+                elif isinstance(node, ast.ImportFrom):
+                    for alias in node.names:
+                        imports.append(alias.asname or alias.name)
+                elif isinstance(node, ast.Name):
+                    identifiers.add(node.id)
         except SyntaxError:
             functions = [
                 line.strip()[4:].split("(", 1)[0]
@@ -80,50 +148,19 @@ class PythonLangSvc:
                 for line in lines
                 if line.strip().startswith("class ")
             ]
+            identifiers.update(_IDENTIFIER_RE.findall(source))
         return AnalysisSnapshot(
             artifact_id=artifact_id,
             code_metadata={
                 "language": "python",
                 "line_count": len(lines),
-                "functions": functions,
-                "classes": classes,
-                "methods": methods,
-                "class_methods": class_methods,
-                "bases": bases,
+                "functions": sorted(set(functions)),
+                "classes": sorted(set(classes)),
+                "imports": sorted(set(imports)),
+                "identifiers": sorted(identifiers - self.keywords),
                 "todos": _todo_lines(lines),
             },
         )
-
-    def diagnostics_for(self, source: str) -> list[Diagnostic]:
-        diagnostics: list[Diagnostic] = []
-        for index, line in enumerate(source.splitlines(), start=1):
-            if "TODO" in line:
-                diagnostics.append(
-                    Diagnostic(
-                        message="TODO marker left in Python artifact.",
-                        severity=DiagnosticSeverity.INFO,
-                        line=index,
-                        source="PythonLangSvc",
-                    )
-                )
-            if "import *" in line:
-                diagnostics.append(
-                    Diagnostic(
-                        message="Wildcard import makes architecture conformance harder to trace.",
-                        severity=DiagnosticSeverity.WARNING,
-                        line=index,
-                        source="PythonLangSvc",
-                    )
-                )
-        return diagnostics
-
-    @staticmethod
-    def _base_name(node: ast.expr) -> str:
-        if isinstance(node, ast.Name):
-            return node.id
-        if isinstance(node, ast.Attribute):
-            return node.attr
-        return ""
 
 
 class JavaLangSvc:
@@ -139,20 +176,39 @@ class JavaLangSvc:
         "void", "return", "new", "extends", "implements",
     }
     _type_re = re.compile(r"\b(class|interface)\s+([A-Za-z_][A-Za-z0-9_]*)")
-    _inheritance_re = re.compile(
-        r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)"
-        r"(?:\s+extends\s+([A-Za-z_][A-Za-z0-9_]*))?"
-        r"(?:\s+implements\s+([A-Za-z_][A-Za-z0-9_,\s]*))?"
-    )
     _method_re = re.compile(
-        r"\b(?:public|private|protected)?\s*"
-        r"(?:static\s+)?"
+        r"\b(?:public|private|protected)?\s*(?:static\s+)?"
         r"(?:[A-Za-z_][A-Za-z0-9_<>\[\]]*|void)\s+"
         r"([A-Za-z_][A-Za-z0-9_]*)\s*\("
     )
 
-    def complete(self, source: str, line: int, column: int) -> list[str]:
-        return []
+    def complete(
+        self,
+        source: str,
+        line: int,
+        column: int,
+        project_symbols: list[CompletionItem] | None = None,
+    ) -> list[CompletionItem]:
+        prefix = _prefix_at(source, line, column)
+        snapshot = self.parse(source, "completion")
+        items = [
+            CompletionItem(label=name, kind=CompletionItemKind.KEYWORD)
+            for name in sorted(self.keywords)
+        ]
+        items.extend(
+            CompletionItem(label=name, kind=CompletionItemKind.CLASS)
+            for name in snapshot.code_metadata.get("classes", [])
+        )
+        items.extend(
+            CompletionItem(label=name, kind=CompletionItemKind.METHOD)
+            for name in snapshot.code_metadata.get("methods", [])
+        )
+        items.extend(
+            CompletionItem(label=name, kind=CompletionItemKind.VARIABLE)
+            for name in snapshot.code_metadata.get("identifiers", [])
+        )
+        items.extend(project_symbols or [])
+        return _dedupe_and_filter(items, prefix)
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
         return _keyword_spans(source, self.keywords)
@@ -162,67 +218,36 @@ class JavaLangSvc:
         type_matches = list(self._type_re.finditer(source))
         classes = [match.group(2) for match in type_matches if match.group(1) == "class"]
         interfaces = [match.group(2) for match in type_matches if match.group(1) == "interface"]
-        bases: dict[str, list[str]] = {}
-        for match in self._inheritance_re.finditer(source):
-            class_name = match.group(1)
-            parents: list[str] = []
-            if match.group(2):
-                parents.append(match.group(2))
-            if match.group(3):
-                parents.extend(
-                    parent.strip()
-                    for parent in match.group(3).split(",")
-                    if parent.strip()
-                )
-            bases[class_name] = parents
         methods = [
             name
             for name in self._method_re.findall(source)
             if name not in {"if", "for", "while", "switch", "catch"}
         ]
-        class_methods = {class_name: methods for class_name in classes}
+        identifiers = sorted(set(_IDENTIFIER_RE.findall(source)) - self.keywords)
         return AnalysisSnapshot(
             artifact_id=artifact_id,
             code_metadata={
                 "language": "java",
                 "line_count": len(lines),
-                "classes": classes,
-                "interfaces": interfaces,
-                "methods": methods,
-                "class_methods": class_methods,
-                "bases": bases,
+                "classes": sorted(set(classes)),
+                "interfaces": sorted(set(interfaces)),
+                "methods": sorted(set(methods)),
+                "identifiers": identifiers,
                 "todos": _todo_lines(lines),
             },
         )
-
-    def diagnostics_for(self, source: str) -> list[Diagnostic]:
-        diagnostics: list[Diagnostic] = []
-        stripped = source.strip()
-        for index, line in enumerate(source.splitlines(), start=1):
-            if "TODO" in line:
-                diagnostics.append(
-                    Diagnostic(
-                        message="TODO marker left in Java artifact.",
-                        severity=DiagnosticSeverity.INFO,
-                        line=index,
-                        source="JavaLangSvc",
-                    )
-                )
-        if stripped and not self._type_re.search(source):
-            diagnostics.append(
-                Diagnostic(
-                    message="Java artifact contains no class or interface declaration yet.",
-                    severity=DiagnosticSeverity.INFO,
-                    source="JavaLangSvc",
-                )
-            )
-        return diagnostics
 
 
 class PlainTextLangSvc:
     """Generic language service for plain text and unsupported file types."""
 
-    def complete(self, source: str, line: int, column: int) -> list[str]:
+    def complete(
+        self,
+        source: str,
+        line: int,
+        column: int,
+        project_symbols: list[CompletionItem] | None = None,
+    ) -> list[CompletionItem]:
         return []
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:

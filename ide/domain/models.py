@@ -24,6 +24,16 @@ class DiagnosticSeverity(str, Enum):
     ERROR = "error"
 
 
+class CompletionItemKind(str, Enum):
+    KEYWORD = "keyword"
+    CLASS = "class"
+    FUNCTION = "function"
+    METHOD = "method"
+    VARIABLE = "variable"
+    IMPORT = "import"
+    SYMBOL = "symbol"
+
+
 @dataclass(slots=True)
 class Artifact:
     name: str
@@ -89,6 +99,19 @@ class Diagnostic:
     column: int = 1
     source: str = "analysis"
     artifact_id: str | None = None
+    file: str = ""
+
+
+@dataclass(slots=True)
+class CompletionItem:
+    label: str
+    kind: CompletionItemKind = CompletionItemKind.SYMBOL
+    insert_text: str = ""
+    detail: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.insert_text:
+            self.insert_text = self.label
 
 
 @dataclass(slots=True)
@@ -152,6 +175,7 @@ class TestRunResult:
     summary: str = "No tests have been run."
     success: bool = True
     command: str = ""
+    output: str = ""
 
     @property
     def total_passed(self) -> int:
@@ -229,9 +253,19 @@ class DebugFrameSnapshot:
     function: str
 
 
+class DebugStatus(str, Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    PAUSED = "paused"
+    FINISHED = "finished"
+    STOPPED = "stopped"
+    ERROR = "error"
+    UNSUPPORTED = "unsupported"
+
+
 @dataclass(slots=True)
 class DebugSnapshot:
-    status: str
+    status: DebugStatus = DebugStatus.IDLE
     file: str = ""
     line: int = 0
     function: str = ""

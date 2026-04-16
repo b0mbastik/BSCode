@@ -18,7 +18,7 @@ Quick-start
            name = "mylang"
            file_extensions = [".my"]
 
-           def complete(self, source, line, column): return []
+           def complete(self, source, line, column, project_symbols=None): return []
            def highlight(self, source): return []
            def parse(self, source, artifact_id):
                return AnalysisSnapshot(artifact_id=artifact_id)
@@ -34,6 +34,7 @@ from ide.domain.models import (
     AnalysisResult,
     AnalysisSnapshot,
     Artifact,
+    CompletionItem,
     Project,
     TestRunResult,
     ToolExecutionResult,
@@ -54,7 +55,13 @@ class LanguageExtension(Protocol):
     #: File extensions this service handles (e.g. ``[".py", ".pyw"]``).
     file_extensions: list[str]
 
-    def complete(self, source: str, line: int, column: int) -> list[str]:
+    def complete(
+        self,
+        source: str,
+        line: int,
+        column: int,
+        project_symbols: list[CompletionItem] | None = None,
+    ) -> list[CompletionItem]:
         """Return completion candidates at *line*/*column* (1-based)."""
         ...
 

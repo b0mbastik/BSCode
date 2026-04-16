@@ -110,6 +110,7 @@ class TestService:
                 summary="ERROR - unittest discover timed out",
                 success=False,
                 command=" ".join(command),
+                output="Test run timed out after 30 seconds.",
             )
 
         duration_ms = round((time.perf_counter() - start_time) * 1000, 1)
@@ -135,6 +136,7 @@ class TestService:
             summary=result_summary,
             success=process_result.returncode == 0,
             command=" ".join(command),
+            output=combined_output,
         )
 
     @staticmethod

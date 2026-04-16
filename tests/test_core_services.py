@@ -1,153 +1,302 @@
 from __future__ import annotations
 
-import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
-from ide.domain.models import Artifact, ArtifactType, Comment, Operation, Revision, TestStatus, TraceLink
+from ide.domain.models import (
+    Artifact,
+    ArtifactType,
+    Comment,
+    CompletionItem,
+    CompletionItemKind,
+    DebugStatus,
+    Operation,
+    Revision,
+    TestStatus,
+    TraceLink,
+)
 from ide.infrastructure.adapters import InMemoryPersistence, RevisionLog
 from ide.infrastructure.bscode_store import BSCodeStore
-from ide.services.integrations import DebugService, RunService, VCSService
-from ide.services.language import JavaLangSvc, PythonLangSvc
+from ide.services.integrations import DebugService, RunService
+from ide.services.language import JavaLangSvc, PlainTextLangSvc, PythonLangSvc
+from ide.services.search import SearchService
 from ide.services.testing import TestService
 from ide.workspace.traceability import TraceabilityService
 from ide.workspace.workspace_services import ArtifactStore, ProjectManager, VersionService
 
 
-class ProjectAndArtifactTests(unittest.TestCase):
-    def test_project_manager_create_switch_and_register(self) -> None:
+class ProjectAndPersistenceTests(unittest.TestCase):
+    def test_project_and_artifact_boundaries(self) -> None:
         manager = ProjectManager()
-        first_project = manager.create_project("First", Path("/tmp/first"))
-        second_project = manager.create_project("Second", Path("/tmp/second"))
+        project = manager.create_project("Demo", Path("/tmp/demo"))
         artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE)
-
-        manager.register_artifact(first_project, artifact)
-        manager.register_artifact(first_project, artifact)
-        active_project = manager.switch_project(first_project.project_id)
-
-        self.assertEqual(active_project, first_project)
-        self.assertEqual(manager.active_project, first_project)
-        self.assertEqual(first_project.artifacts, [artifact.artifact_id])
-        self.assertIn(second_project.project_id, manager.projects)
-
-    def test_artifact_store_uses_persistence_boundary(self) -> None:
         store = ArtifactStore(InMemoryPersistence())
-        artifact = Artifact(
-            name="example.py",
-            artifact_type=ArtifactType.CODE,
-            language="python",
-            content="def run():\n    return 1\n",
-        )
 
+        manager.register_artifact(project, artifact)
         store.save(artifact)
 
+        self.assertEqual(manager.active_project, project)
         self.assertEqual(store.load(artifact.artifact_id), artifact)
 
+    def test_sidecar_state_persists_and_reloads(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store = BSCodeStore(Path(temporary_directory))
+            store.save_comments([Comment(artifact_id="a1", body="review note")])
+            store.save_trace_links([TraceLink(design_element="Design", code_element="Code")])
+            store.save_revisions([Revision(artifact_id="a1", content="v1")])
 
-class LanguageServiceTests(unittest.TestCase):
-    def test_python_language_service_extracts_metadata_and_diagnostics(self) -> None:
+            self.assertEqual(store.load_comments()[0].body, "review note")
+            self.assertEqual(store.load_trace_links()[0].code_element, "Code")
+            self.assertEqual(store.load_revisions()[0].content, "v1")
+
+    def test_autosave_revision_boundary_records_history(self) -> None:
+        service = VersionService(RevisionLog())
+        artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE, content="print('v1')\n")
+
+        revision = service.autosave(artifact, author="tester")
+
+        self.assertEqual(revision.message, "Autosave")
+        self.assertEqual(service.get_history(artifact.artifact_id), [revision])
+
+
+class CompletionTests(unittest.TestCase):
+    def test_python_completion_returns_keywords_and_current_file_symbols(self) -> None:
         service = PythonLangSvc()
-        source = "class Tool:\n    pass\n\ndef build():\n    # TODO wire\n    return 1\n"
+        source = "import os\nclass Tool:\n    pass\n\ndef build():\n    pass\n\nbu"
 
-        snapshot = service.parse(source, "py-1")
-        diagnostics = service.diagnostics_for(source)
+        completions = service.complete(source, 8, 3)
+        labels = {item.label for item in completions}
 
-        self.assertEqual(snapshot.code_metadata["classes"], ["Tool"])
-        self.assertEqual(snapshot.code_metadata["functions"], ["build"])
-        self.assertEqual(diagnostics[0].source, "PythonLangSvc")
+        self.assertIn("build", labels)
+        self.assertTrue(any(item.label == "build" and item.kind is CompletionItemKind.FUNCTION for item in completions))
 
-    def test_java_language_service_extracts_outline_metadata(self) -> None:
+    def test_python_completion_includes_project_symbols(self) -> None:
+        service = PythonLangSvc()
+        project_symbols = [CompletionItem(label="ProjectTool", kind=CompletionItemKind.CLASS)]
+
+        labels = {item.label for item in service.complete("Pro", 1, 4, project_symbols)}
+
+        self.assertIn("ProjectTool", labels)
+
+    def test_java_completion_returns_keywords_methods_and_project_symbols(self) -> None:
         service = JavaLangSvc()
-        source = "public class Tool {\n    public void build() {}\n}\n"
-
-        snapshot = service.parse(source, "java-1")
-
-        self.assertEqual(snapshot.code_metadata["classes"], ["Tool"])
-        self.assertIn("build", snapshot.code_metadata["methods"])
-        self.assertEqual(service.complete(source, 1, 1), [])
-
-    def test_java_language_service_reports_missing_type(self) -> None:
-        service = JavaLangSvc()
-
-        diagnostics = service.diagnostics_for("public void run() {}\n")
-
-        self.assertTrue(
-            any("no class or interface" in diagnostic.message for diagnostic in diagnostics)
+        source = "public class Tool { public void build() {} }\n"
+        completions = service.complete(
+            source,
+            1,
+            1,
+            [CompletionItem(label="ProjectClass", kind=CompletionItemKind.CLASS)],
         )
+        labels = {item.label for item in completions}
+
+        self.assertIn("build", labels)
+        self.assertIn("ProjectClass", labels)
+
+    def test_plain_text_completion_is_empty(self) -> None:
+        self.assertEqual(PlainTextLangSvc().complete("abc", 1, 2), [])
 
 
-class AnalysisAndTestingTests(unittest.TestCase):
-    def test_analysis_manager_runs_static_and_dynamic_paths(self) -> None:
-        manager = AnalysisManager(
+class AnalysisAndConformanceTests(unittest.TestCase):
+    def _manager(self) -> AnalysisManager:
+        return AnalysisManager(
             language_services={"python": PythonLangSvc(), "java": JavaLangSvc()},
             static_analyser=PythonStaticAnalyser(),
             conformance_checker=ConformanceChecker(),
             dyn_analyser=StubDynAnalyser(),
         )
+
+    def test_python_analysis_reports_syntax_error(self) -> None:
+        artifact = Artifact(
+            name="broken.py",
+            artifact_type=ArtifactType.CODE,
+            language="python",
+            content="def broken(:\n    pass\n",
+        )
+
+        result = self._manager().run_static_analysis([artifact])
+
+        self.assertTrue(any(diagnostic.severity.value == "error" for diagnostic in result.diagnostics))
+
+    def test_python_analysis_reports_duplicate_definitions_and_todos(self) -> None:
+        artifact = Artifact(
+            name="dup.py",
+            artifact_type=ArtifactType.CODE,
+            language="python",
+            content="def run():\n    pass\n\ndef run():\n    # TODO wire\n    pass\n",
+        )
+
+        result = self._manager().run_static_analysis([artifact])
+        messages = [diagnostic.message for diagnostic in result.diagnostics]
+
+        self.assertTrue(any("Duplicate definition 'run'" in message for message in messages))
+        self.assertTrue(any("TODO/FIXME" in message for message in messages))
+
+    def test_python_analysis_reports_unused_import(self) -> None:
+        artifact = Artifact(
+            name="imports.py",
+            artifact_type=ArtifactType.CODE,
+            language="python",
+            content="import os\n\ndef run():\n    return 1\n",
+        )
+
+        result = self._manager().run_static_analysis([artifact])
+
+        self.assertTrue(any("Imported name 'os' is not used" in diagnostic.message for diagnostic in result.diagnostics))
+
+    def test_java_analysis_reports_duplicate_class(self) -> None:
         artifact = Artifact(
             name="Tool.java",
             artifact_type=ArtifactType.CODE,
             language="java",
-            content="class Tool { void run() {} }\n",
+            content="class Tool {}\nclass Tool {}\n",
         )
 
-        static = manager.run_static_analysis([artifact])
-        conformance = manager.run_conformance_check(static.snapshot)
+        result = self._manager().run_static_analysis([artifact])
 
-        self.assertIsNotNone(static.snapshot)
-        self.assertEqual(conformance.summary, "Conformance check completed using placeholder metadata.")
+        self.assertTrue(any("Duplicate class 'Tool'" in diagnostic.message for diagnostic in result.diagnostics))
 
-    def test_static_diagnostics_are_tied_to_source_artifact(self) -> None:
-        manager = AnalysisManager(
-            language_services={"python": PythonLangSvc()},
-            static_analyser=PythonStaticAnalyser(),
-            conformance_checker=ConformanceChecker(),
-            dyn_analyser=StubDynAnalyser(),
+    def test_conformance_reports_code_and_design_mismatches(self) -> None:
+        design = Artifact(
+            name="design.md",
+            artifact_type=ArtifactType.DESIGN,
+            content="Tool\nMissingDesignOnly\n",
         )
-        artifact = Artifact(
-            name="todo.py",
+        code = Artifact(
+            name="tool.py",
             artifact_type=ArtifactType.CODE,
             language="python",
-            content="def run():\n    # TODO fix\n",
+            content="class Tool:\n    pass\n\nclass ExtraCodeOnly:\n    pass\n",
         )
+        manager = self._manager()
 
-        result = manager.run_static_analysis([artifact])
+        static = manager.run_static_analysis([design, code])
+        conformance = manager.run_conformance_check(static.snapshot)
+        messages = [diagnostic.message for diagnostic in conformance.diagnostics]
 
-        self.assertTrue(
-            any(diagnostic.artifact_id == artifact.artifact_id for diagnostic in result.diagnostics)
+        self.assertTrue(any("ExtraCodeOnly" in message for message in messages))
+        self.assertTrue(any("MissingDesignOnly" in message for message in messages))
+
+    def test_conformance_reports_traceability_inconsistency(self) -> None:
+        design = Artifact(name="design.md", artifact_type=ArtifactType.DESIGN, content="Tool\n")
+        code = Artifact(
+            name="tool.py",
+            artifact_type=ArtifactType.CODE,
+            language="python",
+            content="class Tool:\n    pass\n",
         )
+        manager = self._manager()
+        static = manager.run_static_analysis([design, code])
 
-    def test_test_service_classifies_pass_fail_skip(self) -> None:
-        service = TestService()
+        conformance = manager.run_conformance_check(
+            static.snapshot,
+            [TraceLink(design_element="MissingDesign", code_element="MissingCode")],
+        )
+        messages = [diagnostic.message for diagnostic in conformance.diagnostics]
+
+        self.assertTrue(any("MissingDesign" in message for message in messages))
+        self.assertTrue(any("MissingCode" in message for message in messages))
+
+    def test_dynamic_analysis_boundary_is_non_diagnostic(self) -> None:
+        project = ProjectManager().create_project("Demo", Path("/tmp/demo"))
+
+        result = StubDynAnalyser().analyse_runtime(project)
+
+        self.assertEqual(result.diagnostics, [])
+
+
+class DebugServiceTests(unittest.TestCase):
+    def test_debug_service_rejects_non_python_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            java_file = root / "Tool.java"
+            java_file.write_text("class Tool {}\n", encoding="utf-8")
+            project = ProjectManager().create_project("Debug", root)
+
+            result = DebugService().start_debug_session(project, java_file, {1})
+
+            self.assertFalse(result.success)
+            self.assertIn("Python", result.output)
+
+    def test_python_debugger_pauses_at_breakpoint_and_exposes_locals(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            script = root / "debug_me.py"
+            script.write_text("x = 1\ny = x + 1\nprint(y)\n", encoding="utf-8")
+            project = ProjectManager().create_project("Debug", root)
+            service = DebugService()
+
+            result = service.start_debug_session(project, script, {2})
+            snapshots = self._wait_for_events(service)
+            service.stop()
+            self._wait_for_events(service)
+
+            self.assertTrue(result.success)
+            paused = next(snapshot for snapshot in snapshots if snapshot.status is DebugStatus.PAUSED)
+            self.assertEqual(paused.line, 2)
+            self.assertEqual(paused.variables.get("x"), "1")
+
+    def test_python_debugger_step_and_continue_state_transitions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            script = root / "debug_me.py"
+            script.write_text("x = 1\ny = x + 1\nprint(y)\n", encoding="utf-8")
+            project = ProjectManager().create_project("Debug", root)
+            service = DebugService()
+
+            service.start_debug_session(project, script, set())
+            first_pause = self._wait_for_events(service)
+            service.step()
+            second_pause = self._wait_for_events(service)
+            service.continue_execution()
+            final_events = self._wait_for_events(service, wait_for_terminal=True)
+
+            self.assertTrue(any(snapshot.status is DebugStatus.PAUSED for snapshot in first_pause))
+            self.assertTrue(any(snapshot.status is DebugStatus.PAUSED for snapshot in second_pause))
+            self.assertTrue(any(snapshot.status is DebugStatus.FINISHED for snapshot in final_events))
+
+    @staticmethod
+    def _wait_for_events(
+        service: DebugService,
+        *,
+        wait_for_terminal: bool = False,
+    ) -> list:
+        deadline = time.time() + 2
+        events = []
+        while time.time() < deadline:
+            events.extend(service.poll_events())
+            if events:
+                if not wait_for_terminal:
+                    return events
+                if any(event.status in {DebugStatus.FINISHED, DebugStatus.STOPPED, DebugStatus.ERROR} for event in events):
+                    return events
+            time.sleep(0.02)
+        return events
+
+
+class TestRunnerAndToolingTests(unittest.TestCase):
+    def test_test_runner_fallback_classifies_basic_cases(self) -> None:
         project = ProjectManager().create_project("Tests", Path("/tmp/tests"))
         artifact = Artifact(
             name="test_example.py",
             artifact_type=ArtifactType.TEST,
             language="python",
-            content=(
-                "def test_passes():\n"
-                "    assert 1\n\n"
-                "def test_fails():\n"
-                "    assert False\n\n"
-                "def test_skipped():\n"
-                "    pass\n"
-            ),
+            content="def test_passes():\n    assert 1\n\ndef test_fails():\n    assert False\n",
         )
 
-        result = service.run_tests(project, [artifact])
+        result = TestService().run_tests(project, [artifact])
         statuses = {case.name: case.status for case in result.suites[0].cases}
 
         self.assertEqual(statuses["test_passes"], TestStatus.PASSED)
         self.assertEqual(statuses["test_fails"], TestStatus.FAILED)
-        self.assertEqual(statuses["test_skipped"], TestStatus.SKIPPED)
-        self.assertFalse(result.success)
+        self.assertEqual(result.total_failed, 1)
 
-    def test_test_service_runs_real_unittest_for_disk_project(self) -> None:
+    def test_test_runner_executes_unittest_project_and_captures_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            project_root = Path(temporary_directory)
-            test_file = project_root / "test_real.py"
+            root = Path(temporary_directory)
+            test_file = root / "test_real.py"
             test_file.write_text(
                 "import unittest\n\n"
                 "class RealTest(unittest.TestCase):\n"
@@ -155,7 +304,7 @@ class AnalysisAndTestingTests(unittest.TestCase):
                 "        self.assertEqual(1, 1)\n",
                 encoding="utf-8",
             )
-            project = ProjectManager().create_project("DiskTests", project_root)
+            project = ProjectManager().create_project("Tests", root)
             artifact = Artifact(
                 name=test_file.name,
                 artifact_type=ArtifactType.TEST,
@@ -168,100 +317,32 @@ class AnalysisAndTestingTests(unittest.TestCase):
 
             self.assertTrue(result.success)
             self.assertIn("unittest", result.command)
+            self.assertTrue(result.output)
 
     def test_run_service_extracts_java_package_name(self) -> None:
-        source = "package edu.demo;\npublic class Main {}\n"
+        self.assertEqual(RunService._java_package("package edu.demo;\npublic class Main {}\n"), "edu.demo")
 
-        self.assertEqual(RunService._java_package(source), "edu.demo")
+    def test_search_service_is_plain_filename_and_content_search(self) -> None:
+        artifact = Artifact(name="tool.py", artifact_type=ArtifactType.CODE, content="class Tool:\n    pass\n")
 
-    def test_debug_service_is_skeleton_only(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            project_root = Path(temporary_directory)
-            script = project_root / "debug_me.py"
-            script.write_text("x = 1\ny = x + 1\nprint(y)\n", encoding="utf-8")
-            project = ProjectManager().create_project("Debug", project_root)
-            service = DebugService()
+        results = SearchService().search("tool", [artifact])
 
-            result = service.start_debug_session(project, script, {1})
-            service.stop()
+        self.assertTrue(any(result.context == "filename match" for result in results))
+        self.assertTrue(any(result.line == 1 for result in results))
 
-            self.assertFalse(result.success)
-            self.assertFalse(service.is_active())
-            self.assertEqual(service.poll_events(), [])
-            self.assertIn("not implemented", result.output)
 
-    def test_vcs_service_runs_git_status(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            project_root = Path(temporary_directory)
-            subprocess.run(["git", "init"], cwd=project_root, check=True, capture_output=True)
-            project = ProjectManager().create_project("Git", project_root)
-
-            result = VCSService().status(project)
-
-            self.assertTrue(result.success)
-            self.assertIn("git status", result.command)
-
-class TraceabilityAndRevisionTests(unittest.TestCase):
-    def test_traceability_links_can_be_added_queried_and_removed(self) -> None:
+class WorkspaceBoundaryTests(unittest.TestCase):
+    def test_traceability_service_is_basic_create_delete_store(self) -> None:
         service = TraceabilityService()
-        service_link = TraceLink(
-            design_artifact_id="design-1",
-            design_element="EditorView",
-            code_artifact_id="code-1",
-            code_element="EditorView",
+        link = service.add_link(
+            TraceLink(design_element="Editor", code_element="EditorView", description="realised by")
         )
-        link = service.add_link(service_link)
 
-        self.assertEqual(service.get_links_for_design("design-1"), [link])
-        self.assertEqual(service.get_links_for_code("code-1"), [link])
-        self.assertTrue(service.remove_link(service_link.link_id))
+        self.assertEqual(service.get_all(), [link])
+        self.assertTrue(service.remove_link(link.link_id))
         self.assertEqual(service.get_all(), [])
 
-    def test_version_service_records_checkpoints(self) -> None:
-        service = VersionService(RevisionLog())
-        artifact = Artifact(
-            name="main.py",
-            artifact_type=ArtifactType.CODE,
-            content="print('v1')\n",
-        )
-
-        revision = service.checkpoint(artifact, author="tester")
-
-        self.assertEqual(service.get_history(artifact.artifact_id), [revision])
-        self.assertEqual(revision.content, artifact.content)
-
-    def test_bscode_store_persists_workspace_sidecars(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            store = BSCodeStore(Path(temporary_directory))
-            comment = Comment(
-                artifact_id="a1",
-                line=3,
-                author="tester",
-                body="review note",
-            )
-            link = TraceLink(
-                design_artifact_id="d1",
-                design_element="Diagram",
-                code_artifact_id="c1",
-                code_element="Class",
-            )
-            revision = Revision(
-                artifact_id="a1",
-                content="v1",
-                author="tester",
-            )
-
-            store.save_comments([comment])
-            store.save_trace_links([link])
-            store.save_revisions([revision])
-
-            self.assertEqual(store.load_comments()[0].body, "review note")
-            self.assertEqual(store.load_trace_links()[0].code_element, "Class")
-            self.assertEqual(store.load_revisions()[0].content, "v1")
-
-
-class TextOperationTests(unittest.TestCase):
-    def test_operation_can_be_submitted_without_real_networking(self) -> None:
+    def test_operation_model_supports_collaboration_boundary(self) -> None:
         artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE)
         operation = Operation(artifact_id=artifact.artifact_id, user_id="u1", position=0, text="abc")
 

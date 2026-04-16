@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import ast
 from abc import ABC, abstractmethod
 
 from ide.domain.models import (
@@ -14,9 +15,9 @@ from ide.domain.models import (
     DiagnosticSeverity,
     Project,
     TestRunResult,
-    TestStatus,
+    TraceLink,
 )
-from ide.services.language import LanguageService, PythonLangSvc
+from ide.services.language import JavaLangSvc, LanguageService, PythonLangSvc
 
 
 class StaticAnalyser(ABC):
@@ -26,65 +27,205 @@ class StaticAnalyser(ABC):
 
 
 class PythonStaticAnalyser(StaticAnalyser):
-    """Static analysis adapter backed by the registered language service."""
+    """Small replaceable static analyser for prototype language services."""
 
     def analyse(self, artifact: Artifact, language_service: LanguageService) -> AnalysisResult:
         snapshot = language_service.parse(artifact.content, artifact.artifact_id)
         diagnostics: list[Diagnostic] = []
-        diagnostics_for = getattr(language_service, "diagnostics_for", None)
-        if callable(diagnostics_for):
-            diagnostics.extend(diagnostics_for(artifact.content))
-        for diagnostic in diagnostics:
-            diagnostic.artifact_id = artifact.artifact_id
-        if (
-            isinstance(language_service, PythonLangSvc)
-            and not snapshot.code_metadata.get("functions")
-            and artifact.content.strip()
-        ):
-            diagnostics.append(
-                Diagnostic(
-                    message="Python artifact contains no functions yet.",
-                    severity=DiagnosticSeverity.INFO,
-                    line=0,
-                    source="StaticAnalyser",
-                    artifact_id=artifact.artifact_id,
-                )
-            )
+        if isinstance(language_service, PythonLangSvc):
+            diagnostics.extend(self._python_diagnostics(artifact))
+        elif isinstance(language_service, JavaLangSvc):
+            diagnostics.extend(self._java_diagnostics(artifact, snapshot))
+        else:
+            diagnostics.extend(self._generic_diagnostics(artifact))
         return AnalysisResult(
             diagnostics=diagnostics,
             summary=f"Static analysis completed for {artifact.name}.",
             snapshot=snapshot,
         )
 
+    def _python_diagnostics(self, artifact: Artifact) -> list[Diagnostic]:
+        diagnostics = self._generic_diagnostics(artifact)
+        try:
+            tree = ast.parse(artifact.content)
+        except SyntaxError as exc:
+            diagnostics.append(
+                Diagnostic(
+                    message=exc.msg,
+                    severity=DiagnosticSeverity.ERROR,
+                    line=exc.lineno or 1,
+                    column=exc.offset or 1,
+                    source="PythonStaticAnalyser",
+                    artifact_id=artifact.artifact_id,
+                    file=str(artifact.path or artifact.name),
+                )
+            )
+            return diagnostics
+
+        definitions: dict[str, int] = {}
+        imports: dict[str, int] = {}
+        used_names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.name in definitions:
+                    diagnostics.append(
+                        Diagnostic(
+                            message=f"Duplicate definition '{node.name}'.",
+                            severity=DiagnosticSeverity.WARNING,
+                            line=node.lineno,
+                            column=node.col_offset + 1,
+                            source="PythonStaticAnalyser",
+                            artifact_id=artifact.artifact_id,
+                            file=str(artifact.path or artifact.name),
+                        )
+                    )
+                definitions[node.name] = node.lineno
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports[alias.asname or alias.name.split(".", 1)[0]] = node.lineno
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    imports[alias.asname or alias.name] = node.lineno
+            elif isinstance(node, ast.Name):
+                used_names.add(node.id)
+
+        for import_name, line in imports.items():
+            if import_name not in used_names:
+                diagnostics.append(
+                    Diagnostic(
+                        message=f"Imported name '{import_name}' is not used.",
+                        severity=DiagnosticSeverity.INFO,
+                        line=line,
+                        source="PythonStaticAnalyser",
+                        artifact_id=artifact.artifact_id,
+                        file=str(artifact.path or artifact.name),
+                    )
+                )
+        return diagnostics
+
+    def _java_diagnostics(
+        self,
+        artifact: Artifact,
+        snapshot: AnalysisSnapshot,
+    ) -> list[Diagnostic]:
+        diagnostics = self._generic_diagnostics(artifact)
+        classes = [
+            match.group(1)
+            for match in re.finditer(r"\bclass\s+([A-Za-z_][A-Za-z0-9_]*)", artifact.content)
+        ]
+        for duplicate in self._duplicates(classes):
+            diagnostics.append(
+                Diagnostic(
+                    message=f"Duplicate class '{duplicate}'.",
+                    severity=DiagnosticSeverity.WARNING,
+                    source="JavaStaticAnalyser",
+                    artifact_id=artifact.artifact_id,
+                    file=str(artifact.path or artifact.name),
+                )
+            )
+        if artifact.content.strip() and not classes:
+            diagnostics.append(
+                Diagnostic(
+                    message="Java artefact has no class declaration.",
+                    severity=DiagnosticSeverity.INFO,
+                    source="JavaStaticAnalyser",
+                    artifact_id=artifact.artifact_id,
+                    file=str(artifact.path or artifact.name),
+                )
+            )
+        return diagnostics
+
+    @staticmethod
+    def _generic_diagnostics(artifact: Artifact) -> list[Diagnostic]:
+        diagnostics: list[Diagnostic] = []
+        for line_number, line in enumerate(artifact.content.splitlines(), start=1):
+            if "TODO" in line or "FIXME" in line:
+                diagnostics.append(
+                    Diagnostic(
+                        message="TODO/FIXME marker left in code artefact.",
+                        severity=DiagnosticSeverity.INFO,
+                        line=line_number,
+                        column=max(line.find("TODO"), line.find("FIXME")) + 1,
+                        source="StaticAnalyser",
+                        artifact_id=artifact.artifact_id,
+                        file=str(artifact.path or artifact.name),
+                    )
+                )
+        return diagnostics
+
+    @staticmethod
+    def _duplicates(values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for value in values:
+            if value in seen and value not in duplicates:
+                duplicates.append(value)
+            seen.add(value)
+        return duplicates
+
 
 class ConformanceChecker:
-    def check(self, snapshot: AnalysisSnapshot) -> AnalysisResult:
+    """Lightweight rule-based architecture/code conformance checks."""
+
+    def check(
+        self,
+        snapshot: AnalysisSnapshot,
+        trace_links: list[TraceLink] | None = None,
+    ) -> AnalysisResult:
         diagnostics: list[Diagnostic] = []
-        declared_components = snapshot.architecture_metadata.get("components", [])
-        code_elements = (
+        design_elements = set(snapshot.design_metadata.get("elements", []))
+        architecture_elements = set(snapshot.architecture_metadata.get("components", []))
+        declared_elements = design_elements | architecture_elements
+        code_elements = set(
             snapshot.code_metadata.get("classes", [])
             + snapshot.code_metadata.get("interfaces", [])
             + snapshot.code_metadata.get("functions", [])
             + snapshot.code_metadata.get("methods", [])
         )
-        if declared_components and not set(declared_components).intersection(code_elements):
+        for code_element in sorted(code_elements - declared_elements):
             diagnostics.append(
                 Diagnostic(
-                    message="No code elements currently map to declared architecture components.",
+                    message=f"Code element '{code_element}' is not represented in architecture/design metadata.",
                     severity=DiagnosticSeverity.WARNING,
                     line=0,
                     source="ConformanceChecker",
                 )
             )
+        for design_element in sorted(declared_elements - code_elements):
+            diagnostics.append(
+                Diagnostic(
+                    message=f"Design element '{design_element}' has no matching code element.",
+                    severity=DiagnosticSeverity.INFO,
+                    line=0,
+                    source="ConformanceChecker",
+                )
+            )
+        for link in trace_links or []:
+            if link.design_element and link.design_element not in declared_elements:
+                diagnostics.append(
+                    Diagnostic(
+                        message=f"Trace link refers to missing design element '{link.design_element}'.",
+                        severity=DiagnosticSeverity.WARNING,
+                        source="ConformanceChecker",
+                    )
+                )
+            if link.code_element and link.code_element not in code_elements:
+                diagnostics.append(
+                    Diagnostic(
+                        message=f"Trace link refers to missing code element '{link.code_element}'.",
+                        severity=DiagnosticSeverity.WARNING,
+                        source="ConformanceChecker",
+                    )
+                )
         return AnalysisResult(
             diagnostics=diagnostics,
-            summary="Conformance check completed using placeholder metadata.",
+            summary=f"Conformance check completed with {len(diagnostics)} finding(s).",
             snapshot=snapshot,
         )
 
 
 class DynAnalyser(ABC):
-    """Dynamic-analysis boundary; concrete implementations run at test time."""
+    """Dynamic-analysis boundary retained for future runtime analysis."""
 
     @abstractmethod
     def analyse_runtime(self, project: Project) -> AnalysisResult:
@@ -92,59 +233,24 @@ class DynAnalyser(ABC):
 
     @abstractmethod
     def analyse_test_results(self, test_result: TestRunResult) -> AnalysisResult:
-        """Produce dynamic diagnostics from a completed test run."""
+        """Accept completed test results without producing prototype diagnostics."""
         raise NotImplementedError
 
 
 class StubDynAnalyser(DynAnalyser):
-    """Outline dynamic analyser connected to the test-execution flow.
-
-    Failed or errored test cases become diagnostics so the editor can
-    highlight runtime feedback immediately after a test run.
-    """
+    """Skeletal dynamic analyser; no runtime diagnostics are produced."""
 
     def analyse_runtime(self, project: Project) -> AnalysisResult:
         return AnalysisResult(
-            diagnostics=[
-                Diagnostic(
-                    message="Dynamic analysis hook is ready for test-time profiling integration.",
-                    severity=DiagnosticSeverity.INFO,
-                    line=0,
-                    source="DynAnalyser",
-                )
-            ],
-            summary=f"Dynamic analysis outline executed for {project.name}.",
+            diagnostics=[],
+            summary=f"Dynamic analysis boundary available for {project.name}; no runtime analysis implemented.",
         )
 
     def analyse_test_results(self, test_result: TestRunResult) -> AnalysisResult:
-        diagnostics: list[Diagnostic] = []
-        for suite in test_result.suites:
-            for case in suite.cases:
-                if case.status is TestStatus.FAILED:
-                    diagnostics.append(
-                        Diagnostic(
-                            message=f"Test failed: {case.name} - {case.message or 'assertion error'}",
-                            severity=DiagnosticSeverity.ERROR,
-                            line=case.line or 1,
-                            source="DynAnalyser",
-                            artifact_id=case.artifact_id,
-                        )
-                    )
-                elif case.status is TestStatus.ERROR:
-                    diagnostics.append(
-                        Diagnostic(
-                            message=f"Test error: {case.name} - {case.message or 'unexpected exception'}",
-                            severity=DiagnosticSeverity.ERROR,
-                            line=case.line or 1,
-                            source="DynAnalyser",
-                            artifact_id=case.artifact_id,
-                        )
-                    )
-        summary = (
-            f"Dynamic analysis found {len(diagnostics)} issue(s) from test run "
-            f"({test_result.total_passed} passed, {test_result.total_failed} failed)."
+        return AnalysisResult(
+            diagnostics=[],
+            summary="Dynamic analysis boundary received test results; no diagnostics implemented.",
         )
-        return AnalysisResult(diagnostics=diagnostics, summary=summary)
 
 
 class AnalysisManager:
@@ -233,7 +339,11 @@ class AnalysisManager:
                 elements.append(stripped)
         return sorted({element for element in elements if element})
 
-    def run_conformance_check(self, snapshot: AnalysisSnapshot | None) -> AnalysisResult:
+    def run_conformance_check(
+        self,
+        snapshot: AnalysisSnapshot | None,
+        trace_links: list[TraceLink] | None = None,
+    ) -> AnalysisResult:
         if snapshot is None:
             return AnalysisResult(
                 diagnostics=[
@@ -246,7 +356,7 @@ class AnalysisManager:
                 ],
                 summary="Conformance check skipped.",
             )
-        return self.conformance_checker.check(snapshot)
+        return self.conformance_checker.check(snapshot, trace_links or [])
 
     def run_dynamic_analysis(self, project: Project) -> AnalysisResult:
         return self.dyn_analyser.analyse_runtime(project)

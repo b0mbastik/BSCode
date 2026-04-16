@@ -115,7 +115,7 @@ class CollabService:
 
 
 class CommentService:
-    """Stores and retrieves inline comments/annotations on artefacts."""
+    """Stores and retrieves simple notes on artefacts."""
 
     def __init__(self) -> None:
         self._comments: dict[str, list[Comment]] = {}
@@ -165,6 +165,9 @@ class VersionService:
         )
         self._log.record(revision)
         return revision
+
+    def autosave(self, artifact: Artifact, author: str) -> Revision:
+        return self.checkpoint(artifact, author, message="Autosave")
 
     def get_history(self, artifact_id: str) -> list[Revision]:
         return self._log.get_history(artifact_id)

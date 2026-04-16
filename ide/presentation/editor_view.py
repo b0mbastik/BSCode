@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtCore import QRect, QSize, QTimer, Qt
 from PySide6.QtGui import QColor, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QLabel,
@@ -16,7 +16,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ide.domain.models import Artifact, Diagnostic, DiagnosticSeverity, Operation, TextBuffer, UserSession
+from ide.domain.models import (
+    Artifact,
+    CompletionItem,
+    Diagnostic,
+    DiagnosticSeverity,
+    Operation,
+    TextBuffer,
+    UserSession,
+)
 from ide.services.language import LanguageService
 
 
@@ -148,28 +156,47 @@ class CodeEditor(QPlainTextEdit):
 
 
 class _CompletionPopup(QListWidget):
-    """VS Code-style completion popup scaffold without real candidates."""
+    """Small editor-local completion popup."""
 
-    def __init__(self, editor: CodeEditor) -> None:
-        super().__init__(editor)
+    def __init__(self, editor: CodeEditor, on_insert: Callable[[str], None]) -> None:
+        super().__init__(editor.viewport())
         self.editor = editor
-        self.setWindowFlags(Qt.WindowType.Popup)
+        self.on_insert = on_insert
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setAccessibleName("Code completion popup skeleton")
-        self.setToolTip("Completion provider placeholder for future implementation.")
-        self.setMaximumHeight(72)
+        self.setAccessibleName("Code completion popup")
+        self.setToolTip("Completion candidates from the active language service.")
+        self.setMaximumHeight(140)
         self.setMinimumWidth(280)
+        self.itemClicked.connect(self._insert_item)
+        self.hide()
 
-    def show_skeleton(self) -> None:
+    def show_items(self, items: list[CompletionItem]) -> None:
         self.clear()
-        item = QListWidgetItem("Completion provider not implemented")
-        item.setFlags(Qt.ItemFlag.NoItemFlags)
-        self.addItem(item)
+        if not items:
+            self.hide()
+            return
+        for completion in items:
+            item = QListWidgetItem(f"{completion.label}  {completion.kind.value}")
+            item.setData(Qt.ItemDataRole.UserRole, completion.insert_text)
+            self.addItem(item)
         cursor_rect = self.editor.cursorRect()
-        position = self.editor.mapToGlobal(cursor_rect.bottomLeft())
-        self.move(position)
-        self.resize(280, 48)
+        self.move(cursor_rect.left(), cursor_rect.bottom())
+        self.resize(320, min(140, 24 * len(items) + 8))
         self.show()
+        self.editor.setFocus()
+
+    def insert_current(self) -> bool:
+        item = self.currentItem() or self.item(0)
+        if item is None:
+            return False
+        self._insert_item(item)
+        return True
+
+    def _insert_item(self, item: QListWidgetItem) -> None:
+        insert_text = item.data(Qt.ItemDataRole.UserRole)
+        if insert_text:
+            self.on_insert(str(insert_text))
+        self.hide()
 
 
 class EditorView(QWidget):
@@ -186,6 +213,7 @@ class EditorView(QWidget):
         language_service: LanguageService,
         session: UserSession,
         on_operation: Callable[[Operation, Artifact], None],
+        completion_provider: Callable[["EditorView"], list[CompletionItem]] | None = None,
     ) -> None:
         super().__init__()
         self.artifact = artifact
@@ -193,7 +221,10 @@ class EditorView(QWidget):
         self.language_service = language_service
         self.session = session
         self.on_operation = on_operation
+        self.completion_provider = completion_provider
         self._updating_from_model = False
+        self._diagnostic_selections: list[QTextEdit.ExtraSelection] = []
+        self._execution_selection: QTextEdit.ExtraSelection | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -214,11 +245,14 @@ class EditorView(QWidget):
         self.editor.setAccessibleName(f"Code editor for {artifact.name}")
         self.editor.setToolTip(
             "Code editor: edits are broadcast to collaborators automatically. "
-            "Ctrl+Space opens the completion popup scaffold."
+            "Ctrl+Space opens lightweight language-service completion."
         )
         self.editor.textChanged.connect(self._on_text_changed)
         self.highlighter = _LanguageHighlighter(self.editor.document(), self.language_service)
-        self.completion_popup = _CompletionPopup(self.editor)
+        self.completion_popup = _CompletionPopup(self.editor, self.insert_completion)
+        self.completion_timer = QTimer(self)
+        self.completion_timer.setSingleShot(True)
+        self.completion_timer.timeout.connect(self.show_completion)
 
         layout.addWidget(self.header)
         layout.addWidget(self.editor)
@@ -250,10 +284,39 @@ class EditorView(QWidget):
             selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
             selection.format.setBackground(self._diagnostic_colour(diagnostic.severity))
             selections.append(selection)
-        self.editor.setExtraSelections(selections)
+        self._diagnostic_selections = selections
+        self._apply_extra_selections()
 
-    def show_completion_skeleton(self) -> None:
-        self.completion_popup.show_skeleton()
+    def show_completion(self) -> None:
+        if self.completion_provider is None:
+            self.completion_popup.hide()
+            return
+        self.completion_popup.show_items(self.completion_provider(self))
+
+    def insert_completion(self, completion: str) -> None:
+        cursor = self.editor.textCursor()
+        cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+        cursor.insertText(completion)
+        self.editor.setTextCursor(cursor)
+
+    def set_execution_line(self, line: int) -> None:
+        block = self.editor.document().findBlockByLineNumber(max(0, line - 1))
+        if not block.isValid():
+            return
+        selection = QTextEdit.ExtraSelection()
+        cursor = QTextCursor(block)
+        cursor.select(QTextCursor.SelectionType.LineUnderCursor)
+        selection.cursor = cursor
+        selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+        selection.format.setBackground(QColor(205, 232, 255))
+        self._execution_selection = selection
+        self._apply_extra_selections()
+        self.editor.setTextCursor(cursor)
+        self.editor.ensureCursorVisible()
+
+    def clear_execution_line(self) -> None:
+        self._execution_selection = None
+        self._apply_extra_selections()
 
     def breakpoints(self) -> set[int]:
         return self.editor.breakpoints()
@@ -272,9 +335,9 @@ class EditorView(QWidget):
         self.buffer.apply(operation)
         self.artifact.content = self.buffer.content
         self.on_operation(operation, self.artifact)
-        self._maybe_show_completion_skeleton()
+        self._schedule_completion_popup()
 
-    def _maybe_show_completion_skeleton(self) -> None:
+    def _schedule_completion_popup(self) -> None:
         cursor = self.editor.textCursor()
         if cursor.position() == 0:
             self.completion_popup.hide()
@@ -282,9 +345,15 @@ class EditorView(QWidget):
         text_before_cursor = self.editor.toPlainText()[: cursor.position()]
         last_character = text_before_cursor[-1:]
         if last_character.isalnum() or last_character in {"_", "."}:
-            self.show_completion_skeleton()
+            self.completion_timer.start(250)
         else:
             self.completion_popup.hide()
+
+    def _apply_extra_selections(self) -> None:
+        selections = list(self._diagnostic_selections)
+        if self._execution_selection is not None:
+            selections.append(self._execution_selection)
+        self.editor.setExtraSelections(selections)
 
     @staticmethod
     def _diagnostic_colour(severity: DiagnosticSeverity) -> QColor:

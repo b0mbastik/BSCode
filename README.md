@@ -28,13 +28,13 @@ On macOS, if PySide6 was installed with the framework Python installer but Homeb
 
 ## What Is Intentionally Skeletal
 
-The prototype does not implement real networking, CRDT algorithms, database persistence, debuggers, class-diagram generation from code, full code completion, production parsers, or production static analysis. Those are represented by typed services and adapter boundaries so the design remains clear and extensible.
+The prototype does not implement real networking, CRDT algorithms, database persistence, Java debugging, class-diagram generation from code, production language-server completion, production parsers, dynamic analysis diagnostics, rich help/search/comment workflows, or industrial static analysis. Those are represented by typed services and adapter boundaries so the design remains clear and extensible.
 
 ## Current Language Support
 
-- Python is implemented as the concrete outline language service through `PythonLangSvc`.
-- Java is represented by a skeletal `JavaLangSvc` that recognises `.java` files, extracts simple class/interface/method metadata, and applies placeholder highlighting.
-- Code completion is a UI scaffold only: typing or pressing Ctrl+Space opens a VS Code-style popup placeholder, but no candidate provider or insertion logic is implemented.
+- Python is implemented as the concrete outline language service through `PythonLangSvc`; it provides keyword highlighting, simple symbol extraction, and lightweight completions from keywords, imports, functions, classes, and identifiers.
+- Java is represented by a skeletal `JavaLangSvc` that recognises `.java` files, extracts shallow class/method metadata, applies keyword highlighting, and provides lightweight completions.
+- Code completion is real but intentionally small: typing or pressing Ctrl+Space opens an editor-local popup populated by the active language service and simple project symbols.
 - Other recognised text formats use `PlainTextLangSvc`.
 
 The architecture treats language support as pluggable through the `LanguageService` protocol and `PluginRegistry`.
@@ -72,4 +72,8 @@ See `IMPLEMENTATION_STATUS.md` for a brief fully-implemented vs outlined status 
 
 ## Extending Analysis
 
-Replace or add implementations of `StaticAnalyser`, `DynAnalyser`, or `ConformanceChecker` in `ide.analysis.engine`. The `AnalysisManager` is the coordination point used by the UI and future service integrations.
+Replace or add implementations of `StaticAnalyser`, `DynAnalyser`, or `ConformanceChecker` in `ide.analysis.engine`. The current `DynAnalyser` is intentionally non-diagnostic; it exists only as the future runtime-analysis boundary.
+
+## Debugging
+
+`DebugService` provides a minimal Python-only debugger using the standard-library `bdb` module. It can start the active Python file, pause at simple line breakpoints, step, continue, stop, and report locals/output to the UI. Java debugging and advanced debugger features are intentionally out of scope.
