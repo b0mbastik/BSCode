@@ -25,7 +25,7 @@ This repository now uses two categories:
 | Autosave/revisions | `Revision`, `RevisionLog` and `VersionService` remain; revision history is not implemented. |
 | Architecture/design artefacts | `DiagramCanvas` and diagram concepts remain as text-based design boundaries. |
 | Class diagram generation | Not implemented; class diagram remains an editable design artefact concept. |
-| Run/interpreter integration | `RunService` remains and returns placeholder `ToolExecutionResult` objects. |
+| Run/interpreter integration | `RunService` is a narrow real adapter for running single Python files and compiling/running single Java files with local tools. |
 | Debugging | `DebugService`, `DebugSnapshot` and UI hooks remain; no real runtime debugging occurs. |
 | Build automation | `BuildService` remains as an explicit boundary only. |
 | Testing integration | `TestService` and result models remain; no framework discovery/execution occurs. |
@@ -51,6 +51,7 @@ This repository now uses two categories:
 | --- | --- |
 | In-memory project/artefact registration | Keeps the shell and mapping between project, artefact and editor inspectable. |
 | Placeholder result objects | Demonstrates how services return typed results to the UI. |
+| Python/Java run execution | Retained so a user can manually run active `.py` or `.java` files from the IDE. |
 | Basic note/traceability in-memory lists | Shows the workspace-service responsibility without rich behaviour. |
 | Debug state placeholders | Shows the debugger service/UI interaction without executing code. |
 | Static diagram templates | Provides report-facing design artefact concepts. |

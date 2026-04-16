@@ -1,24 +1,28 @@
 """External tool integration boundaries.
 
-This outline implementation keeps the service APIs for running files, building,
-debugging, and version control, but intentionally avoids invoking subprocesses
-or driving real debuggers.  The classes return typed placeholder results so the
-presentation layer can demonstrate interactions without claiming production
-tool integration.
+This module keeps tool integrations behind service boundaries.  File execution
+is intentionally the one real integration retained so users can run Python and
+Java files from the IDE.  Build, debug, and version-control operations remain
+explicit outline boundaries.
 """
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from ide.domain.models import DebugSnapshot, DebugStatus, Project, ToolExecutionResult
 
 
 class RunService:
-    """Boundary for interpreter/compiler execution.
+    """Interpreter/compiler execution adapter for Python and Java files.
 
-    Future adapters may call Python, Java, or other toolchains.  The coursework
-    skeleton returns an explicit placeholder result instead.
+    This is a deliberately narrow real implementation: it runs a single Python
+    file with the active interpreter, or compiles and runs a single Java source
+    file through local ``javac``/``java``.  Build systems, project classpaths and
+    language-specific debugging remain separate outline services.
     """
 
     def run_file(
@@ -29,11 +33,42 @@ class RunService:
         timeout: int = 30,
         extra_args: list[str] | None = None,
     ) -> ToolExecutionResult:
-        return ToolExecutionResult(
-            success=True,
-            command=f"run {path.name}",
-            output="RunService boundary only: interpreter execution is not implemented.",
-        )
+        command_args = [sys.executable, str(path), *(extra_args or [])]
+        try:
+            result = subprocess.run(
+                command_args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=str(cwd or path.parent),
+            )
+            return ToolExecutionResult(
+                success=result.returncode == 0,
+                command=" ".join(command_args),
+                output=self._combined_output(result.stdout, result.stderr) or "(no output)",
+                exit_code=result.returncode,
+            )
+        except FileNotFoundError:
+            return ToolExecutionResult(
+                success=False,
+                command=" ".join(command_args),
+                output=f"Python interpreter not found: {sys.executable}",
+                exit_code=-1,
+            )
+        except subprocess.TimeoutExpired:
+            return ToolExecutionResult(
+                success=False,
+                command=" ".join(command_args),
+                output=f"Process timed out after {timeout} second(s).",
+                exit_code=-1,
+            )
+        except OSError as exc:
+            return ToolExecutionResult(
+                success=False,
+                command=" ".join(command_args),
+                output=f"Failed to start Python process: {exc}",
+                exit_code=-1,
+            )
 
     def run_java_file(
         self,
@@ -42,11 +77,66 @@ class RunService:
         cwd: Path | None = None,
         timeout: int = 30,
     ) -> ToolExecutionResult:
-        return ToolExecutionResult(
-            success=True,
-            command=f"run-java {path.name}",
-            output="Java compile/run boundary only: javac/java integration is not implemented.",
-        )
+        try:
+            source = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return ToolExecutionResult(
+                success=False,
+                command=f"javac/java {path}",
+                output=f"Could not read Java source: {exc}",
+                exit_code=-1,
+            )
+
+        package = self._java_package(source)
+        class_name = f"{package}.{path.stem}" if package else path.stem
+        with tempfile.TemporaryDirectory(prefix="bscode-java-") as build_dir:
+            compile_cmd = ["javac", "-d", build_dir, str(path)]
+            run_cmd = ["java", "-cp", build_dir, class_name]
+            try:
+                compile_result = subprocess.run(
+                    compile_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=str(cwd or path.parent),
+                )
+                if compile_result.returncode != 0:
+                    return ToolExecutionResult(
+                        success=False,
+                        command=" ".join(compile_cmd),
+                        output=self._combined_output(compile_result.stdout, compile_result.stderr)
+                        or "Java compilation failed.",
+                        exit_code=compile_result.returncode,
+                    )
+
+                run_result = subprocess.run(
+                    run_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=str(cwd or path.parent),
+                )
+                return ToolExecutionResult(
+                    success=run_result.returncode == 0,
+                    command=" ".join(compile_cmd) + " && " + " ".join(run_cmd),
+                    output=self._combined_output(run_result.stdout, run_result.stderr) or "(no output)",
+                    exit_code=run_result.returncode,
+                )
+            except FileNotFoundError as exc:
+                tool = exc.filename or "javac/java"
+                return ToolExecutionResult(
+                    success=False,
+                    command=" ".join(compile_cmd) + " && " + " ".join(run_cmd),
+                    output=f"Java tool not found: {tool}. Install a JDK to run Java files.",
+                    exit_code=-1,
+                )
+            except subprocess.TimeoutExpired:
+                return ToolExecutionResult(
+                    success=False,
+                    command=" ".join(compile_cmd) + " && " + " ".join(run_cmd),
+                    output=f"Java process timed out after {timeout} second(s).",
+                    exit_code=-1,
+                )
 
     def run_module(
         self,
@@ -63,8 +153,19 @@ class RunService:
 
     @staticmethod
     def _java_package(source: str) -> str:
-        """Structural hook retained for a future Java adapter."""
+        """Return the declared Java package name, if present."""
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("package ") and stripped.endswith(";"):
+                return stripped.removeprefix("package ").removesuffix(";").strip()
         return ""
+
+    @staticmethod
+    def _combined_output(stdout: str, stderr: str) -> str:
+        output = stdout
+        if stderr:
+            output += ("\n" if output else "") + "[stderr]\n" + stderr
+        return output.strip()
 
 
 class BuildService:

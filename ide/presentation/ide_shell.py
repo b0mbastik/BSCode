@@ -769,7 +769,10 @@ class IDEShell(QMainWindow):
 
         self.statusBar().showMessage(f"Running {artifact.path.name}...")
         self.output_view.appendPlainText(f"\n{'-' * 60}")
-        self.output_view.appendPlainText(f"$ run-boundary {artifact.path}")
+        if artifact.path.suffix.lower() == ".java":
+            self.output_view.appendPlainText(f"$ javac/java {artifact.path}")
+        else:
+            self.output_view.appendPlainText(f"$ python {artifact.path}")
         self.bottom_tabs.setCurrentWidget(self.output_view)
 
         if artifact.path.suffix.lower() == ".java":

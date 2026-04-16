@@ -13,7 +13,7 @@
 | Workspace | Collaboration | `CollabService`, `NetworkSync`, `Operation` | Architectural boundary only; no real networking. |
 | Workspace | Notes/revisions/traceability | `CommentService`, `VersionService`, `TraceabilityService` | Simple structural services only. |
 | Services | Language support | `LanguageService`, `PythonLangSvc`, `JavaLangSvc`, `PlainTextLangSvc` | Interfaces/classes retained; real parsing/highlighting/completion omitted. |
-| Services | Tool integrations | `RunService`, `BuildService`, `DebugService`, `VCSService` | Return placeholder `ToolExecutionResult`/debug snapshots. |
+| Services | Tool integrations | `RunService`, `BuildService`, `DebugService`, `VCSService` | `RunService` executes single Python/Java files; build/debug/VCS remain placeholders. |
 | Services | Testing/search/help | `TestService`, `SearchService`, `HelpService` | Boundaries retained; only help has static content. |
 | Analysis | Analysis orchestration | `AnalysisManager`, `StaticAnalyser`, `ConformanceChecker`, `DynAnalyser` | Contracts and flow retained; algorithms omitted. |
 | Infrastructure | Sidecar metadata | `BSCodeStore` | `.bscode` boundary retained; persistence omitted. |

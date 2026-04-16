@@ -30,14 +30,15 @@ python main.py
 
 Most standard IDE features are outlined only.  The implementation keeps the
 classes, method signatures, result models and collaboration points, but removes
-real algorithms and tool execution.  This is deliberate: the coursework values
-architecture, design structure and traceability over feature completeness.
+most real algorithms and tool execution.  The one retained tool integration is
+single-file Python/Java execution through `RunService`, so users can run files
+manually while the rest of the system remains architecture-first.
 
 Outlined boundaries include:
 
 - syntax highlighting, completion and language parsing
 - Python and Java language support
-- run/debug/build/test/VCS integrations
+- debug/build/test/VCS integrations
 - static, conformance and dynamic analysis
 - project search
 - autosave/revision persistence

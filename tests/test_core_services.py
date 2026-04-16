@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
 from pathlib import Path
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
@@ -88,9 +89,24 @@ class ArchitectureContractTests(unittest.TestCase):
     def test_tool_services_return_placeholder_result_objects(self) -> None:
         project = ProjectManager().create_project("Outline", Path("/tmp/outline"))
 
-        self.assertIn("boundary", RunService().run_file(Path("main.py")).output)
         self.assertIn("boundary", BuildService().run_build(project).output)
         self.assertIn("boundary", VCSService().status(project).output)
+
+    def test_run_service_executes_python_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            script = root / "hello.py"
+            script.write_text("print('hello from run service')\n", encoding="utf-8")
+
+            result = RunService().run_file(script, cwd=root)
+
+            self.assertTrue(result.success)
+            self.assertIn("hello from run service", result.output)
+
+    def test_run_service_extracts_java_package_name(self) -> None:
+        source = "package edu.example;\npublic class Main {}\n"
+
+        self.assertEqual(RunService._java_package(source), "edu.example")
 
     def test_debug_service_preserves_python_only_session_boundary(self) -> None:
         project = ProjectManager().create_project("Outline", Path("/tmp/outline"))

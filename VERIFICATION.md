@@ -16,7 +16,7 @@ python3 -m unittest discover -s tests
 ## Latest Result
 
 - `python3 -m compileall ide main.py`: passed.
-- `python3 -m unittest discover -s tests`: passed, 13 architecture-focused tests.
+- `python3 -m unittest discover -s tests`: passed, 15 tests.
 
 ## Expected Coverage
 
@@ -29,6 +29,7 @@ The focused tests cover:
 - analysis and conformance boundaries
 - dynamic-analysis boundary
 - run/build/debug/VCS placeholder result objects
+- real single-file Python execution through `RunService`
 - test/search service boundaries
 - `.bscode` metadata boundary
 - collaboration, traceability, revision and plugin boundaries
@@ -37,7 +38,8 @@ The focused tests cover:
 
 - No real file scanning, file writes or sidecar JSON persistence.
 - No AST parsing, regex analysis, code completion, or syntax highlighting logic.
-- No subprocess execution for Python, Java, tests, builds or Git.
+- No subprocess execution for tests, builds, debugger or Git.  `RunService`
+  intentionally keeps narrow Python/Java file execution.
 - No real debugger execution, breakpoints, stack inspection or variables.
 - No real dynamic analysis or conformance-rule execution.
 - No collaboration server, CRDT/OT, conflict resolution or remote presence.
