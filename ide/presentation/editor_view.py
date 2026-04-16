@@ -8,6 +8,8 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QSyntaxHighlighter, QTextCharFormat, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QTextEdit,
     QVBoxLayout,
@@ -145,6 +147,31 @@ class CodeEditor(QPlainTextEdit):
             self._update_line_number_area_width()
 
 
+class _CompletionPopup(QListWidget):
+    """VS Code-style completion popup scaffold without real candidates."""
+
+    def __init__(self, editor: CodeEditor) -> None:
+        super().__init__(editor)
+        self.editor = editor
+        self.setWindowFlags(Qt.WindowType.Popup)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAccessibleName("Code completion popup skeleton")
+        self.setToolTip("Completion provider placeholder for future implementation.")
+        self.setMaximumHeight(72)
+        self.setMinimumWidth(280)
+
+    def show_skeleton(self) -> None:
+        self.clear()
+        item = QListWidgetItem("Completion provider not implemented")
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.addItem(item)
+        cursor_rect = self.editor.cursorRect()
+        position = self.editor.mapToGlobal(cursor_rect.bottomLeft())
+        self.move(position)
+        self.resize(280, 48)
+        self.show()
+
+
 class EditorView(QWidget):
     """Code editor widget with inline diagnostic highlights.
 
@@ -186,12 +213,12 @@ class EditorView(QWidget):
         self.editor.setPlainText(self.buffer.content)
         self.editor.setAccessibleName(f"Code editor for {artifact.name}")
         self.editor.setToolTip(
-            "Code editor: Ctrl+S saves and creates a version checkpoint. "
-            "Edits are broadcast to collaborators automatically. "
-            "Use Ctrl+Space from the IDE shell for code completion."
+            "Code editor: edits are broadcast to collaborators automatically. "
+            "Ctrl+Space opens the completion popup scaffold."
         )
         self.editor.textChanged.connect(self._on_text_changed)
         self.highlighter = _LanguageHighlighter(self.editor.document(), self.language_service)
+        self.completion_popup = _CompletionPopup(self.editor)
 
         layout.addWidget(self.header)
         layout.addWidget(self.editor)
@@ -225,17 +252,8 @@ class EditorView(QWidget):
             selections.append(selection)
         self.editor.setExtraSelections(selections)
 
-    def completion_candidates(self) -> list[str]:
-        cursor = self.editor.textCursor()
-        block = cursor.block()
-        line = block.blockNumber() + 1
-        column = cursor.positionInBlock() + 1
-        return self.language_service.complete(self.editor.toPlainText(), line, column)
-
-    def insert_completion(self, completion: str) -> None:
-        cursor = self.editor.textCursor()
-        cursor.insertText(completion)
-        self.editor.setTextCursor(cursor)
+    def show_completion_skeleton(self) -> None:
+        self.completion_popup.show_skeleton()
 
     def breakpoints(self) -> set[int]:
         return self.editor.breakpoints()
@@ -254,6 +272,19 @@ class EditorView(QWidget):
         self.buffer.apply(operation)
         self.artifact.content = self.buffer.content
         self.on_operation(operation, self.artifact)
+        self._maybe_show_completion_skeleton()
+
+    def _maybe_show_completion_skeleton(self) -> None:
+        cursor = self.editor.textCursor()
+        if cursor.position() == 0:
+            self.completion_popup.hide()
+            return
+        text_before_cursor = self.editor.toPlainText()[: cursor.position()]
+        last_character = text_before_cursor[-1:]
+        if last_character.isalnum() or last_character in {"_", "."}:
+            self.show_completion_skeleton()
+        else:
+            self.completion_popup.hide()
 
     @staticmethod
     def _diagnostic_colour(severity: DiagnosticSeverity) -> QColor:

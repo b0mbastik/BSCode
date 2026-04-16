@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -67,7 +66,7 @@ class LanguageServiceTests(unittest.TestCase):
 
         self.assertEqual(snapshot.code_metadata["classes"], ["Tool"])
         self.assertIn("build", snapshot.code_metadata["methods"])
-        self.assertIn("class", service.complete(source, 1, 1))
+        self.assertEqual(service.complete(source, 1, 1), [])
 
     def test_java_language_service_reports_missing_type(self) -> None:
         service = JavaLangSvc()
@@ -175,7 +174,7 @@ class AnalysisAndTestingTests(unittest.TestCase):
 
         self.assertEqual(RunService._java_package(source), "edu.demo")
 
-    def test_debug_service_starts_and_stops_python_session(self) -> None:
+    def test_debug_service_is_skeleton_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             project_root = Path(temporary_directory)
             script = project_root / "debug_me.py"
@@ -184,12 +183,12 @@ class AnalysisAndTestingTests(unittest.TestCase):
             service = DebugService()
 
             result = service.start_debug_session(project, script, {1})
-            snapshots = self._wait_for_debug_events(service)
             service.stop()
-            snapshots.extend(self._wait_for_debug_events(service))
 
-            self.assertTrue(result.success)
-            self.assertTrue(any(snapshot.status == "paused" for snapshot in snapshots))
+            self.assertFalse(result.success)
+            self.assertFalse(service.is_active())
+            self.assertEqual(service.poll_events(), [])
+            self.assertIn("not implemented", result.output)
 
     def test_vcs_service_runs_git_status(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -201,18 +200,6 @@ class AnalysisAndTestingTests(unittest.TestCase):
 
             self.assertTrue(result.success)
             self.assertIn("git status", result.command)
-
-    @staticmethod
-    def _wait_for_debug_events(service: DebugService) -> list:
-        deadline = time.time() + 2
-        events = []
-        while time.time() < deadline:
-            events.extend(service.poll_events())
-            if events:
-                return events
-            time.sleep(0.02)
-        return events
-
 
 class TraceabilityAndRevisionTests(unittest.TestCase):
     def test_traceability_links_can_be_added_queried_and_removed(self) -> None:

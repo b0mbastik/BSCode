@@ -34,7 +34,7 @@ The tests exercise non-UI architecture seams:
 - Python and Java language-service metadata extraction
 - Java package-name extraction for compile/run support
 - analysis-manager orchestration
-- debugger session startup and pause/stop flow
+- debugger service skeleton contract
 - Git status adapter against a temporary repository
 - test-service heuristic classification and real `unittest discover` execution
 - traceability links
@@ -48,5 +48,6 @@ GUI behaviour is intentionally not automated. The UI remains manually smoke-test
 - Collaboration networking is represented by a local `NetworkSync` boundary and presence stub.
 - Static and dynamic analysis are outline implementations, not production analysers.
 - Java compile/run support uses local `javac` and `java` where a JDK is installed.
-- Build automation remains a service boundary; debugger and VCS operations have working prototype implementations.
+- Build automation and debugger integration remain service/UI boundaries; runtime debugger behaviour is intentionally not implemented.
+- Class diagram generation from code and full completion candidate insertion are intentionally not implemented.
 - Report source, references, and word-count handling are intentionally left to the report author.

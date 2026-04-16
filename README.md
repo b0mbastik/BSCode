@@ -21,19 +21,20 @@ On macOS, if PySide6 was installed with the framework Python installer but Homeb
 
 - `ide.presentation`: PySide6 desktop shell, editor surface, diagram canvas, collaboration presence panel, diagnostics and output views.
 - `ide.workspace`: project selection, artifact storage facade, collaboration orchestration, user session context.
-- `ide.services`: language services and external tool integration stubs for build, debug, and Git.
+- `ide.services`: language services and external tool integration boundaries for build, debug, run, and Git.
 - `ide.analysis`: static analysis, conformance checking, dynamic analysis extension points, and orchestration.
 - `ide.infrastructure`: platform, persistence, network sync, and plugin registry boundaries.
 - `ide.domain`: shared dataclasses and enums used across the layers.
 
 ## What Is Intentionally Skeletal
 
-The prototype does not implement real networking, CRDT algorithms, database persistence, compilers, debuggers, Git operations, parsers, or production static analysis. Those are represented by typed services and adapter boundaries so the design remains clear and extensible.
+The prototype does not implement real networking, CRDT algorithms, database persistence, debuggers, class-diagram generation from code, full code completion, production parsers, or production static analysis. Those are represented by typed services and adapter boundaries so the design remains clear and extensible.
 
 ## Current Language Support
 
 - Python is implemented as the concrete outline language service through `PythonLangSvc`.
-- Java is represented by a skeletal `JavaLangSvc` that recognises `.java` files, extracts simple class/interface/method metadata, and returns placeholder completions/highlighting.
+- Java is represented by a skeletal `JavaLangSvc` that recognises `.java` files, extracts simple class/interface/method metadata, and applies placeholder highlighting.
+- Code completion is a UI scaffold only: typing or pressing Ctrl+Space opens a VS Code-style popup placeholder, but no candidate provider or insertion logic is implemented.
 - Other recognised text formats use `PlainTextLangSvc`.
 
 The architecture treats language support as pluggable through the `LanguageService` protocol and `PluginRegistry`.

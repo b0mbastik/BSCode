@@ -11,6 +11,7 @@ from ide.domain.models import AnalysisSnapshot, Diagnostic, DiagnosticSeverity
 
 class LanguageService(Protocol):
     def complete(self, source: str, line: int, column: int) -> list[str]:
+        """Completion extension point; currently intentionally unimplemented."""
         ...
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
@@ -38,7 +39,7 @@ class PythonLangSvc:
     keywords = {"class", "def", "from", "import", "return", "if", "else", "for", "while"}
 
     def complete(self, source: str, line: int, column: int) -> list[str]:
-        return ["def", "class", "import", "pytest", "typing"]
+        return []
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
         return _keyword_spans(source, self.keywords)
@@ -151,7 +152,7 @@ class JavaLangSvc:
     )
 
     def complete(self, source: str, line: int, column: int) -> list[str]:
-        return ["class", "interface", "public", "private", "static", "void"]
+        return []
 
     def highlight(self, source: str) -> list[tuple[int, int, str]]:
         return _keyword_spans(source, self.keywords)

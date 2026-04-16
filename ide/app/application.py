@@ -249,11 +249,6 @@ class IDEApplication:
             return {}
         return self.bscode_store.load_all_diagrams()
 
-    def save_diagram(self, diagram_type: str, content: str) -> None:
-        """Persist *content* for *diagram_type* under ``.bscode/design/``."""
-        if self.bscode_store is not None:
-            self.bscode_store.save_diagram(diagram_type, content)
-
     def persist_project_state(self) -> None:
         """Persist project-local comments, trace links, and revision history."""
         if self.bscode_store is None:
@@ -261,31 +256,6 @@ class IDEApplication:
         self.bscode_store.save_comments(self.comment_service.all_comments())
         self.bscode_store.save_trace_links(self.traceability_service.get_all())
         self.bscode_store.save_revisions(self.version_service.all_revisions())
-
-    def open_file(self, path: Path) -> Artifact | None:
-        """Open a single file and register it with the active project."""
-        normalised = self.platform.normalise_path(path)
-        if not normalised.is_file():
-            return None
-        if normalised.suffix.lower() not in _TEXT_EXTENSIONS:
-            return None
-
-        project = self.project_manager.active_project
-        if project is not None:
-            for artifact_id in project.artifacts:
-                existing = self.artifact_store.load(artifact_id)
-                if existing is not None and existing.path == normalised:
-                    return existing
-
-        artifact = self._artifact_from_path(normalised)
-        if project is None:
-            self.open_project(normalised.parent.name or "Opened File", normalised.parent)
-            project = self.project_manager.active_project
-
-        assert project is not None
-        self.artifact_store.save(artifact)
-        self.project_manager.register_artifact(project, artifact)
-        return artifact
 
     def register_language_extension(self, service: object, extensions: list[str]) -> None:
         """Public API for plugin developers to register a custom language service."""

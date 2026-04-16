@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,23 +11,18 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QComboBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QDockWidget,
     QPlainTextEdit,
     QPushButton,
-    QSizePolicy,
     QStatusBar,
     QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
@@ -41,7 +35,6 @@ from ide.domain.models import (
     ArtifactType,
     Comment,
     Diagnostic,
-    DebugSnapshot,
     Operation,
     SyncStatus,
     TraceLink,
@@ -129,7 +122,6 @@ class IDEShell(QMainWindow):
         self.active_editor: EditorView | None = None
         self._last_diagnostics: list[Diagnostic] = []
         self._project_selector_updating = False
-        self._copied_path: Path | None = None
         self._last_file_snapshot: set[str] = set()
 
         self.setWindowTitle("Architecture Driven Collaborative IDE")
@@ -140,9 +132,6 @@ class IDEShell(QMainWindow):
         self.analysis_timer.setSingleShot(True)
         self.analysis_timer.timeout.connect(lambda: self._run_static_analysis(add_output=False))
 
-        self.debug_timer = QTimer(self)
-        self.debug_timer.timeout.connect(self._poll_debugger)
-
         self.filesystem_timer = QTimer(self)
         self.filesystem_timer.timeout.connect(self._refresh_project_if_changed)
 
@@ -150,7 +139,6 @@ class IDEShell(QMainWindow):
         self._apply_initial_layout()
 
         self.application.network_sync.add_status_listener(self._on_sync_status_changed)
-        self.debug_timer.start(150)
         self.filesystem_timer.start(2500)
 
         self.statusBar().showMessage("Desktop IDE shell ready. Press F1 for help.")
@@ -170,50 +158,10 @@ class IDEShell(QMainWindow):
         self._create_status_bar()
 
     def _create_actions(self) -> None:
-        self.new_project_action = QAction("New Project", self)
-        self.new_project_action.setToolTip("Create a new empty project")
-        self.new_project_action.triggered.connect(self.new_project)
-
-        self.open_project_action = QAction("Open Project...", self)
-        self.open_project_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
-        self.open_project_action.setToolTip("Open a folder as a project (Ctrl+Shift+O)")
-        self.open_project_action.triggered.connect(self.open_project)
-
-        self.open_file_action = QAction("Open File...", self)
-        self.open_file_action.setShortcut(QKeySequence("Ctrl+O"))
-        self.open_file_action.setToolTip("Open a single file (Ctrl+O)")
-        self.open_file_action.triggered.connect(self.open_file)
-
-        self.save_artifact_action = QAction("Save", self)
-        self.save_artifact_action.setShortcut(QKeySequence("Ctrl+S"))
-        self.save_artifact_action.setToolTip("Save active file and create a version checkpoint (Ctrl+S)")
-        self.save_artifact_action.triggered.connect(self.save_active_artifact)
-
         self.close_tab_action = QAction("Close Tab", self)
         self.close_tab_action.setShortcut(QKeySequence("Ctrl+W"))
         self.close_tab_action.setToolTip("Close the current editor tab (Ctrl+W)")
         self.close_tab_action.triggered.connect(self._close_active_tab)
-
-        self.version_history_action = QAction("Version History...", self)
-        self.version_history_action.setToolTip("Show revision history for the active file")
-        self.version_history_action.triggered.connect(self.show_version_history)
-
-        self.new_file_action = QAction("New File...", self)
-        self.new_file_action.setToolTip("Create a new file in the selected project folder")
-        self.new_file_action.triggered.connect(self.create_project_file)
-
-        self.new_folder_action = QAction("New Folder...", self)
-        self.new_folder_action.setToolTip("Create a new folder in the selected project folder")
-        self.new_folder_action.triggered.connect(self.create_project_folder)
-
-        self.rename_project_item_action = QAction("Rename...", self)
-        self.rename_project_item_action.triggered.connect(self.rename_project_item)
-
-        self.copy_project_item_action = QAction("Copy", self)
-        self.copy_project_item_action.triggered.connect(self.copy_project_item)
-
-        self.paste_project_item_action = QAction("Paste", self)
-        self.paste_project_item_action.triggered.connect(self.paste_project_item)
 
         self.refresh_project_action = QAction("Refresh Explorer", self)
         self.refresh_project_action.triggered.connect(self.refresh_project_from_disk)
@@ -223,9 +171,9 @@ class IDEShell(QMainWindow):
         self.find_in_project_action.setToolTip("Search all artefacts in the project (Ctrl+Shift+F)")
         self.find_in_project_action.triggered.connect(self.show_search_bar)
 
-        self.complete_action = QAction("Code Completion...", self)
+        self.complete_action = QAction("Code Completion", self)
         self.complete_action.setShortcut(QKeySequence("Ctrl+Space"))
-        self.complete_action.setToolTip("Show language-service completion candidates (Ctrl+Space)")
+        self.complete_action.setToolTip("Show the completion popup scaffold (Ctrl+Space)")
         self.complete_action.triggered.connect(self.show_code_completion)
 
         self.run_file_action = QAction("Run Active File", self)
@@ -246,21 +194,21 @@ class IDEShell(QMainWindow):
 
         self.debug_start_action = QAction("Start Debugging", self)
         self.debug_start_action.setShortcut(QKeySequence("F9"))
-        self.debug_start_action.setToolTip("Start Python debugger for the active file (F9)")
+        self.debug_start_action.setToolTip("Debugger UI skeleton; runtime debugging is not implemented")
         self.debug_start_action.triggered.connect(self.start_debugging)
 
         self.debug_step_action = QAction("Step", self)
         self.debug_step_action.setShortcut(QKeySequence("F10"))
-        self.debug_step_action.setToolTip("Step to the next debugger line (F10)")
+        self.debug_step_action.setToolTip("Debugger UI skeleton; stepping is not implemented")
         self.debug_step_action.triggered.connect(self.debug_step)
 
         self.debug_continue_action = QAction("Continue", self)
         self.debug_continue_action.setShortcut(QKeySequence("F11"))
-        self.debug_continue_action.setToolTip("Continue debugger execution (F11)")
+        self.debug_continue_action.setToolTip("Debugger UI skeleton; continue is not implemented")
         self.debug_continue_action.triggered.connect(self.debug_continue)
 
         self.debug_stop_action = QAction("Stop Debugging", self)
-        self.debug_stop_action.setToolTip("Stop the active debug session")
+        self.debug_stop_action.setToolTip("Debugger UI skeleton; stop is not implemented")
         self.debug_stop_action.triggered.connect(self.debug_stop)
 
         self.static_analysis_action = QAction("Run Static Analysis", self)
@@ -269,10 +217,6 @@ class IDEShell(QMainWindow):
         self.static_analysis_action.triggered.connect(
             lambda: self._run_static_analysis(add_output=True)
         )
-
-        self.generate_class_diagram_action = QAction("Generate Class Diagram from Code", self)
-        self.generate_class_diagram_action.setToolTip("Generate Mermaid class diagram text from parsed project code")
-        self.generate_class_diagram_action.triggered.connect(self.generate_class_diagram_from_code)
 
         self.show_project_explorer_action = QAction("Project Explorer", self)
         self.show_project_explorer_action.setCheckable(True)
@@ -338,18 +282,9 @@ class IDEShell(QMainWindow):
         self.menuBar().setNativeMenuBar(False)
         file_menu = self.menuBar().addMenu("&File")
         file_menu.setAccessibleName("File menu")
-        file_menu.addAction(self.new_project_action)
-        file_menu.addAction(self.open_project_action)
-        file_menu.addAction(self.open_file_action)
-        file_menu.addSeparator()
-        file_menu.addAction(self.new_file_action)
-        file_menu.addAction(self.new_folder_action)
         file_menu.addAction(self.refresh_project_action)
         file_menu.addSeparator()
-        file_menu.addAction(self.save_artifact_action)
         file_menu.addAction(self.close_tab_action)
-        file_menu.addSeparator()
-        file_menu.addAction(self.version_history_action)
 
         edit_menu = self.menuBar().addMenu("&Edit")
         edit_menu.setAccessibleName("Edit menu")
@@ -371,7 +306,6 @@ class IDEShell(QMainWindow):
         analyse_menu = self.menuBar().addMenu("&Analyse")
         analyse_menu.setAccessibleName("Analyse menu")
         analyse_menu.addAction(self.static_analysis_action)
-        analyse_menu.addAction(self.generate_class_diagram_action)
 
         view_menu = self.menuBar().addMenu("&View")
         view_menu.setAccessibleName("View menu")
@@ -406,21 +340,6 @@ class IDEShell(QMainWindow):
         toolbar = QToolBar("Main toolbar")
         toolbar.setMovable(False)
         toolbar.setAccessibleName("Main toolbar")
-        toolbar.addAction(self.new_project_action)
-        toolbar.addAction(self.open_file_action)
-        toolbar.addAction(self.save_artifact_action)
-        toolbar.addSeparator()
-        toolbar.addAction(self.run_file_action)
-        toolbar.addAction(self.run_tests_action)
-        toolbar.addAction(self.build_action)
-        toolbar.addAction(self.debug_start_action)
-        toolbar.addAction(self.debug_step_action)
-        toolbar.addAction(self.debug_continue_action)
-        toolbar.addAction(self.debug_stop_action)
-        toolbar.addAction(self.static_analysis_action)
-        toolbar.addAction(self.generate_class_diagram_action)
-        toolbar.addAction(self.complete_action)
-        toolbar.addSeparator()
 
         project_label = QLabel("Project: ")
         project_label.setAccessibleName("Active project selector label")
@@ -466,8 +385,6 @@ class IDEShell(QMainWindow):
         self.project_tree.setAccessibleName("Project Explorer tree")
         self.project_tree.setToolTip("Double-click a file to open it in the editor.")
         self.project_tree.itemDoubleClicked.connect(self._open_tree_item)
-        self.project_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.project_tree.customContextMenuRequested.connect(self._show_project_context_menu)
         self.project_dock = QDockWidget("Project Explorer", self)
         self.project_dock.setAccessibleName("Project Explorer dock")
         self.project_dock.setObjectName("ProjectExplorerDock")
@@ -645,189 +562,16 @@ class IDEShell(QMainWindow):
         )
 
 
-    def new_project(self) -> None:
-        name, accepted = QInputDialog.getText(self, "New Project", "Project name:")
-        if not accepted or not name.strip():
-            return
-        self.application.open_project(name.strip(), Path.cwd() / name.strip())
-        self._clear_code_editors()
-        self._refresh_project_selector()
-        self._load_diagrams_for_active_project()
-        self.refresh_project_explorer()
-        self._refresh_trace_links()
-        self.output_view.appendPlainText(f"Created project: {name.strip()}")
-
-    def open_project(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Open Project Folder")
-        if not path:
-            return
-        project_name = Path(path).name or "Opened Project"
-        self.application.open_project(project_name, Path(path))
-        self._clear_code_editors()
-        self._refresh_project_selector()
-        self._load_diagrams_for_active_project()
-        self.refresh_project_explorer()
-        self._refresh_trace_links()
-        self.output_view.appendPlainText(f"Opened project: {project_name} ({path})")
-        self.statusBar().showMessage(f"Project '{project_name}' loaded.")
-
-    def open_file(self) -> None:
-        root = ""
-        if self.application.project_manager.active_project:
-            root = str(self.application.project_manager.active_project.root_path)
-        file_dialog_result = QFileDialog.getOpenFileName(self, "Open File", root, "All Files (*.*)")
-        path = file_dialog_result[0]
-        if not path:
-            return
-        artifact = self.application.open_file(Path(path))
-        if artifact is None:
-            QMessageBox.warning(self, "Cannot Open", f"File type not supported or unreadable:\n{path}")
-            return
-        self.refresh_project_explorer()
-        self.open_artifact(artifact)
-
-    def save_active_artifact(self) -> None:
-        # Design tab active: save all diagram types.
-        if self.tabs.currentWidget() is self.diagram_canvas:
-            self._save_diagrams()
-            return
-
-        # Code editor active: save the file.
-        if self.active_editor is None:
-            self.statusBar().showMessage("No active editor to save.")
-            return
-        artifact = self.active_editor.artifact
-        self.application.artifact_store.save(artifact)
-        session = self.application.session_manager.current_session
-        author = session.display_name if session else "Local User"
-        self.application.version_service.checkpoint(artifact, author)
-        self.application.persist_project_state()
-        label = str(artifact.path) if artifact.path else artifact.name
-        self.statusBar().showMessage(f"Saved {label}  [checkpoint created]")
-
     def _close_active_tab(self) -> None:
         tab_index = self.tabs.currentIndex()
         if tab_index >= 0:
             self._on_tab_close_requested(tab_index)
 
 
-    def create_project_file(self) -> None:
-        directory = self._selected_directory()
-        if directory is None:
-            return
-        name, accepted = QInputDialog.getText(self, "New File", "File name:")
-        if not accepted or not name.strip():
-            return
-        path = directory / name.strip()
-        if path.exists():
-            QMessageBox.warning(self, "New File", f"Already exists:\n{path}")
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("", encoding="utf-8")
-        self.refresh_project_from_disk()
-        artifact = self.application.open_file(path)
-        if artifact is not None:
-            self.open_artifact(artifact)
-
-    def create_project_folder(self) -> None:
-        directory = self._selected_directory()
-        if directory is None:
-            return
-        name, accepted = QInputDialog.getText(self, "New Folder", "Folder name:")
-        if not accepted or not name.strip():
-            return
-        path = directory / name.strip()
-        if path.exists():
-            QMessageBox.warning(self, "New Folder", f"Already exists:\n{path}")
-            return
-        path.mkdir(parents=True)
-        self.refresh_project_from_disk()
-
-    def rename_project_item(self) -> None:
-        path = self._selected_path()
-        if path is None:
-            return
-        new_name, accepted = QInputDialog.getText(self, "Rename", "New name:", text=path.name)
-        if not accepted or not new_name.strip() or new_name.strip() == path.name:
-            return
-        target = path.with_name(new_name.strip())
-        if target.exists():
-            QMessageBox.warning(self, "Rename", f"Already exists:\n{target}")
-            return
-        path.rename(target)
-        self._close_tabs_for_paths({path})
-        self.refresh_project_from_disk()
-
-    def copy_project_item(self) -> None:
-        path = self._selected_path()
-        if path is not None:
-            self._copied_path = path
-            self.statusBar().showMessage(f"Copied {path.name}")
-
-    def paste_project_item(self) -> None:
-        if self._copied_path is None or not self._copied_path.exists():
-            return
-        directory = self._selected_directory()
-        if directory is None:
-            return
-        target = directory / self._copied_path.name
-        if target.exists():
-            target = self._unique_copy_path(target)
-        if self._copied_path.is_dir():
-            shutil.copytree(self._copied_path, target)
-        else:
-            shutil.copy2(self._copied_path, target)
-        self.refresh_project_from_disk()
-        self.statusBar().showMessage(f"Pasted {target.name}")
-
     def refresh_project_from_disk(self) -> None:
         self.application.refresh_active_project_from_disk()
         self.refresh_project_explorer()
         self._last_file_snapshot = self._filesystem_snapshot()
-
-    def _show_project_context_menu(self, pos) -> None:
-        self.project_tree.setCurrentItem(self.project_tree.itemAt(pos))
-        menu = QMenu(self)
-        menu.addAction(self.new_file_action)
-        menu.addAction(self.new_folder_action)
-        menu.addSeparator()
-        menu.addAction(self.rename_project_item_action)
-        menu.addAction(self.copy_project_item_action)
-        self.paste_project_item_action.setEnabled(self._copied_path is not None)
-        menu.addAction(self.paste_project_item_action)
-        menu.addSeparator()
-        menu.addAction(self.refresh_project_action)
-        menu.exec(self.project_tree.viewport().mapToGlobal(pos))
-
-    def _selected_path(self) -> Path | None:
-        item = self.project_tree.currentItem()
-        if item is None:
-            project = self.application.project_manager.active_project
-            return project.root_path if project is not None else None
-        stored_path = item.data(0, Qt.ItemDataRole.UserRole)
-        return Path(stored_path) if stored_path else None
-
-    def _selected_directory(self) -> Path | None:
-        path = self._selected_path()
-        if path is None:
-            project = self.application.project_manager.active_project
-            return project.root_path if project is not None else None
-        return path if path.is_dir() else path.parent
-
-    @staticmethod
-    def _unique_copy_path(path: Path) -> Path:
-        for index in range(1, 1000):
-            candidate = path.with_name(f"{path.stem} copy {index}{path.suffix}")
-            if not candidate.exists():
-                return candidate
-        return path.with_name(f"{path.stem} copy{path.suffix}")
-
-    def _close_tabs_for_paths(self, paths: set[Path]) -> None:
-        for index in reversed(range(self.tabs.count())):
-            widget = self.tabs.widget(index)
-            if isinstance(widget, EditorView) and widget.artifact.path in paths:
-                self.tabs.removeTab(index)
-                widget.deleteLater()
 
     def run_build(self) -> None:
         project = self.application.project_manager.active_project
@@ -839,73 +583,35 @@ class IDEShell(QMainWindow):
 
 
     def start_debugging(self) -> None:
-        if self.active_editor is None or self.active_editor.artifact.path is None:
-            self.statusBar().showMessage("Open a Python file before debugging.")
-            return
-        artifact = self.active_editor.artifact
-        if artifact.path.suffix.lower() != ".py":
-            self.statusBar().showMessage("Debugger currently supports Python files only.")
-            return
         project = self.application.project_manager.active_project
-        if project is None:
-            return
-        self.application.artifact_store.save(artifact)
-        breakpoints = self.active_editor.breakpoints() | self._parse_breakpoints()
-        result = self.application.debug_service.start_debug_session(
-            project,
-            artifact.path,
-            breakpoints,
-        )
-        self.debug_output_view.appendPlainText(f"$ {result.command}\n{result.output}")
-        self.bottom_tabs.setCurrentIndex(self.bottom_tabs.indexOf(self.debug_output_view.parentWidget()))
-        self.statusBar().showMessage(result.output)
+        entrypoint = Path("<no-active-file>")
+        if self.active_editor is not None and self.active_editor.artifact.path is not None:
+            entrypoint = self.active_editor.artifact.path
+        if project is not None:
+            result = self.application.debug_service.start_debug_session(project, entrypoint, set())
+            message = result.output
+        else:
+            message = "Debugger UI skeleton only; no active project."
+        self._show_debugger_skeleton_message(message)
 
     def debug_step(self) -> None:
         self.application.debug_service.step()
+        self._show_debugger_skeleton_message("Debugger step is a UI skeleton; runtime debugging is not implemented.")
 
     def debug_continue(self) -> None:
         self.application.debug_service.continue_execution()
+        self._show_debugger_skeleton_message("Debugger continue is a UI skeleton; runtime debugging is not implemented.")
 
     def debug_stop(self) -> None:
         self.application.debug_service.stop()
+        self._show_debugger_skeleton_message("Debugger stop is a UI skeleton; runtime debugging is not implemented.")
 
-    def _poll_debugger(self) -> None:
-        for snapshot in self.application.debug_service.poll_events():
-            self._render_debug_snapshot(snapshot)
-
-    def _render_debug_snapshot(self, snapshot: DebugSnapshot) -> None:
+    def _show_debugger_skeleton_message(self, message: str) -> None:
         self.debug_stack_tree.clear()
-        for frame in snapshot.stack:
-            self.debug_stack_tree.addTopLevelItem(
-                QTreeWidgetItem([frame.function, str(frame.line), frame.file])
-            )
         self.debug_variables_tree.clear()
-        for name, value in sorted(snapshot.variables.items()):
-            self.debug_variables_tree.addTopLevelItem(QTreeWidgetItem([name, value]))
-        self.debug_output_view.setPlainText(snapshot.output)
-        if snapshot.message:
-            self.debug_output_view.appendPlainText(snapshot.message)
-        if snapshot.file and snapshot.line:
-            self.statusBar().showMessage(
-                f"Debugger {snapshot.status}: {Path(snapshot.file).name}:{snapshot.line}"
-            )
-        else:
-            self.statusBar().showMessage(f"Debugger {snapshot.status}: {snapshot.message}")
+        self.debug_output_view.setPlainText(message)
         self.bottom_tabs.setCurrentIndex(self.bottom_tabs.indexOf(self.debug_output_view.parentWidget()))
-
-    def _parse_breakpoints(self) -> set[int]:
-        breakpoints: set[int] = set()
-        for breakpoint_text in self.breakpoint_field.text().replace(";", ",").split(","):
-            breakpoint_text = breakpoint_text.strip()
-            if not breakpoint_text:
-                continue
-            try:
-                line = int(breakpoint_text)
-            except ValueError:
-                continue
-            if line > 0:
-                breakpoints.add(line)
-        return breakpoints
+        self.statusBar().showMessage(message)
 
 
     def git_status(self) -> None:
@@ -1095,21 +801,8 @@ class IDEShell(QMainWindow):
         if self.active_editor is None:
             self.statusBar().showMessage("No active editor for code completion.")
             return
-        candidates = self.active_editor.completion_candidates()
-        if not candidates:
-            self.statusBar().showMessage("No completion candidates available.")
-            return
-        completion, accepted = QInputDialog.getItem(
-            self,
-            "Code Completion",
-            "Insert completion:",
-            candidates,
-            0,
-            False,
-        )
-        if accepted and completion:
-            self.active_editor.insert_completion(completion)
-            self.statusBar().showMessage(f"Inserted completion: {completion}")
+        self.active_editor.show_completion_skeleton()
+        self.statusBar().showMessage("Completion popup skeleton shown; provider logic is not implemented.")
 
     def _execute_search(self) -> None:
         query = self.search_field.text().strip()
@@ -1258,68 +951,6 @@ class IDEShell(QMainWindow):
             f"Help - {topic.title}",
             topic.content,
         )
-
-
-    def show_version_history(self) -> None:
-        if self.active_editor is None:
-            self.statusBar().showMessage("No active file to show history for.")
-            return
-        artifact = self.active_editor.artifact
-        revisions = self.application.version_service.get_history(artifact.artifact_id)
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Version History - {artifact.name}")
-        dialog.setMinimumSize(700, 400)
-        dialog.setAccessibleName("Version history dialog")
-        layout = QVBoxLayout(dialog)
-
-        table = QTableWidget(len(revisions), 4)
-        table.setHorizontalHeaderLabels(["#", "Author", "Timestamp", "Message"])
-        table.setAccessibleName("Version history table")
-        table.setToolTip("Select a revision and click Restore to revert the file.")
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.horizontalHeader().setStretchLastSection(True)
-
-        for row_index, revision in enumerate(revisions):
-            table.setItem(row_index, 0, QTableWidgetItem(revision.revision_id[:8]))
-            table.setItem(row_index, 1, QTableWidgetItem(revision.author))
-            table.setItem(row_index, 2, QTableWidgetItem(revision.timestamp.strftime("%Y-%m-%d %H:%M:%S")))
-            table.setItem(row_index, 3, QTableWidgetItem(revision.message))
-            for column_index in range(4):
-                if table_item := table.item(row_index, column_index):
-                    table_item.setData(Qt.ItemDataRole.UserRole, revision.revision_id)
-
-        layout.addWidget(QLabel(f"{len(revisions)} checkpoint(s) for {artifact.name}"))
-        layout.addWidget(table)
-
-        button_row = QHBoxLayout()
-        restore_btn = QPushButton("Restore Selected")
-        restore_btn.setToolTip("Restore the active file to the selected revision")
-        restore_btn.setAccessibleName("Restore revision button")
-        close_btn = QPushButton("Close")
-        button_row.addWidget(restore_btn)
-        button_row.addStretch()
-        button_row.addWidget(close_btn)
-        layout.addLayout(button_row)
-
-        def _restore() -> None:
-            selected_rows = table.selectionModel().selectedRows()
-            if not selected_rows:
-                return
-            revision_id = table.item(selected_rows[0].row(), 0).data(Qt.ItemDataRole.UserRole)
-            selected_revision = next(
-                (revision for revision in revisions if revision.revision_id == revision_id),
-                None,
-            )
-            if selected_revision and self.active_editor:
-                self.active_editor.artifact.content = selected_revision.content
-                self.active_editor.editor.setPlainText(selected_revision.content)
-                self.statusBar().showMessage(f"Restored {artifact.name} to revision {revision_id[:8]}.")
-            dialog.accept()
-
-        restore_btn.clicked.connect(_restore)
-        close_btn.clicked.connect(dialog.accept)
-        dialog.exec()
 
 
     def add_comment(self) -> None:
@@ -1594,73 +1225,6 @@ class IDEShell(QMainWindow):
             self.output_view.appendPlainText(f"{result.summary}\n{conformance.summary}")
         self.statusBar().showMessage(f"Analysis: {len(diagnostics)} diagnostic(s).")
 
-    def generate_class_diagram_from_code(self) -> None:
-        project = self.application.project_manager.active_project
-        if project is None:
-            return
-        artifacts = self.application.artifact_store.list_for_project(project)
-        diagram_lines = ["classDiagram"]
-        relationships: list[str] = []
-        generated = 0
-
-        for artifact in artifacts:
-            if artifact.artifact_type is not ArtifactType.CODE:
-                continue
-            language_service = self.application.language_services.get(artifact.language or "plain")
-            if language_service is None:
-                continue
-            snapshot = language_service.parse(artifact.content, artifact.artifact_id)
-            metadata = snapshot.code_metadata
-            class_methods = metadata.get("class_methods", {})
-            for class_name in metadata.get("classes", []):
-                safe_class = self._mermaid_identifier(class_name)
-                diagram_lines.append(f"    class {safe_class} {{")
-                for method in class_methods.get(class_name, metadata.get("methods", [])):
-                    diagram_lines.append(f"        +{self._mermaid_identifier(method)}()")
-                diagram_lines.append("    }")
-                generated += 1
-            for interface_name in metadata.get("interfaces", []):
-                safe_interface = self._mermaid_identifier(interface_name)
-                diagram_lines.append(f"    class {safe_interface} {{")
-                diagram_lines.append("        <<interface>>")
-                diagram_lines.append("    }")
-                generated += 1
-            functions = metadata.get("functions", [])
-            if functions:
-                module_name = self._mermaid_identifier(Path(artifact.name).stem.title() + "Module")
-                diagram_lines.append(f"    class {module_name} {{")
-                for function in functions:
-                    diagram_lines.append(f"        +{self._mermaid_identifier(function)}()")
-                diagram_lines.append("    }")
-                generated += 1
-
-            bases = metadata.get("bases", {})
-            for child, parents in bases.items():
-                for parent in parents:
-                    relationships.append(
-                        f"    {self._mermaid_identifier(parent)} <|-- {self._mermaid_identifier(child)}"
-                    )
-
-        if relationships:
-            diagram_lines.extend(sorted(set(relationships)))
-        if generated == 0:
-            diagram_lines.append("    class NoCodeElementsFound")
-
-        content = "\n".join(diagram_lines) + "\n"
-        self.diagram_canvas.set_content("UML Class", content)
-        self.diagram_canvas.set_current_diagram("UML Class")
-        self.tabs.setCurrentWidget(self.diagram_canvas)
-        self.application.save_diagram("UML Class", content)
-        self.statusBar().showMessage(f"Generated class diagram from {generated} code element(s).")
-
-    @staticmethod
-    def _mermaid_identifier(name: str) -> str:
-        cleaned_name = "".join(
-            character if character.isalnum() or character == "_" else "_"
-            for character in name.strip()
-        )
-        return cleaned_name or "Unnamed"
-
     def _render_diagnostics(self, diagnostics: list[Diagnostic]) -> None:
         self.diagnostics_tree.clear()
         for diagnostic in diagnostics:
@@ -1701,14 +1265,6 @@ class IDEShell(QMainWindow):
         saved = self.application.load_diagrams()
         if saved:
             self.diagram_canvas.load_saved_content(saved)
-
-    def _save_diagrams(self) -> None:
-        """Write all five diagram types to .bscode/design/ for the active project."""
-        from ide.infrastructure.bscode_store import DIAGRAM_TYPES
-        for diagram_type in DIAGRAM_TYPES:
-            self.application.save_diagram(diagram_type, self.diagram_canvas.get_content(diagram_type))
-        self.statusBar().showMessage(f"Design diagrams saved to .bscode/design/ ({len(DIAGRAM_TYPES)} files)")
-
 
     def _clear_code_editors(self) -> None:
         for index in reversed(range(self.tabs.count())):

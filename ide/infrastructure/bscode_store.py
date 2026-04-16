@@ -65,17 +65,6 @@ class BSCodeStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.design_path.mkdir(parents=True, exist_ok=True)
 
-    def save_diagram(self, diagram_type: str, content: str) -> None:
-        """Write *content* for *diagram_type* to ``.bscode/design/``."""
-        self.ensure_dirs()
-        path = self._diagram_path(diagram_type)
-        if path is None:
-            return
-        try:
-            path.write_text(content, encoding="utf-8")
-        except OSError:
-            pass
-
     def load_diagram(self, diagram_type: str) -> str | None:
         """Return saved content for *diagram_type*, or ``None`` if unsaved."""
         path = self._diagram_path(diagram_type)

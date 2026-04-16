@@ -17,16 +17,14 @@ _TOPICS: list[HelpTopic] = [
     HelpTopic(
         topic_id="editor",
         title="Code Editor",
-        keywords=["edit", "code", "file", "tab", "save", "open"],
+        keywords=["edit", "code", "file", "tab", "completion", "open"],
         content=(
             "The code editor opens text files in tabs at the centre of the window.\n\n"
             "Shortcuts:\n"
-            "  Ctrl+O            Open a file\n"
-            "  Ctrl+S            Save the active file\n"
-            "  Ctrl+Shift+O      Open a project folder\n"
             "  Ctrl+W            Close the active tab\n\n"
             "Auto-save: edits are written to disk automatically. "
-            "Press Ctrl+S to create an explicit version checkpoint."
+            "Ctrl+Space opens the completion popup scaffold; completion "
+            "candidate generation and insertion are future work."
         ),
     ),
     HelpTopic(
@@ -91,17 +89,6 @@ _TOPICS: list[HelpTopic] = [
             "Click 'Add Comment' to attach a note to a specific line. "
             "Comments include the author name (from your session), a line number, "
             "and free-text body."
-        ),
-    ),
-    HelpTopic(
-        topic_id="versioning",
-        title="Version History",
-        keywords=["version", "history", "revision", "checkpoint", "undo", "restore"],
-        content=(
-            "Every explicit Ctrl+S creates a revision checkpoint for the active file.\n\n"
-            "File > Version History shows the full checkpoint list with author, "
-            "timestamp, and message. Select a revision and click 'Restore' to "
-            "revert the file to that snapshot."
         ),
     ),
     HelpTopic(
@@ -204,11 +191,10 @@ class HelpService:
             content=(
                 "Architecture Driven Collaborative IDE\n\n"
                 "Key areas:\n"
-                "  - File > Open File / Open Project: load files and directories\n"
+                "  - Project selector: switch active projects\n"
                 "  - Run > Run Tests: execute test suites\n"
                 "  - Analyse > Run Static Analysis: check diagnostics\n"
                 "  - Edit > Find in Project: search all artefacts\n"
-                "  - File > Version History: checkpoint history\n"
                 "  - Design tab: architecture diagrams\n"
                 "  - Right docks: collaboration, comments, traceability\n\n"
                 "Press F1 anywhere for contextual help."

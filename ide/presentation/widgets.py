@@ -67,7 +67,7 @@ _DIAGRAM_TEMPLATES: list[tuple[str, str]] = [
         "    +artifact_store: ArtifactStore\n"
         "    +analysis_manager: AnalysisManager\n"
         "    +open_project(name, path): void\n"
-        "    +open_file(path): Artifact\n"
+        "    +switch_project(project_id): void\n"
         "}\n\n"
         "IDEApplication --> ProjectManager\n"
         "IDEApplication --> ArtifactStore\n"
@@ -77,13 +77,12 @@ _DIAGRAM_TEMPLATES: list[tuple[str, str]] = [
         "UML Sequence",
         "# UML Sequence Diagram\n"
         "# Notation: Sender -> Receiver: message()\n\n"
-        "User -> IDEShell: open_file(path)\n"
-        "IDEShell -> IDEApplication: open_file(path)\n"
-        "IDEApplication -> FilesystemPersistence: read(path)\n"
-        "FilesystemPersistence --> IDEApplication: content\n"
-        "IDEApplication --> IDEShell: Artifact\n"
-        "IDEShell -> EditorView: open_artifact(artifact)\n"
-        "EditorView --> IDEShell: editor tab shown\n",
+        "User -> IDEShell: select_project(project_id)\n"
+        "IDEShell -> IDEApplication: switch_project(project_id)\n"
+        "IDEApplication -> ProjectManager: switch_project(project_id)\n"
+        "ProjectManager --> IDEApplication: active_project\n"
+        "IDEApplication --> IDEShell: project state loaded\n"
+        "IDEShell -> ProjectExplorer: refresh()\n",
     ),
 ]
 

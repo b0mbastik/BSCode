@@ -146,11 +146,7 @@ class CommentService:
 
 
 class VersionService:
-    """Creates explicit revision checkpoints and retrieves version history.
-
-    Checkpoints are created on every explicit Ctrl+S save. Auto-saves on
-    each keystroke do *not* create checkpoints to avoid revision log noise.
-    """
+    """Revision checkpoint boundary for future explicit version-history UI."""
 
     def __init__(self, revision_log: RevisionLog) -> None:
         self._log = revision_log
