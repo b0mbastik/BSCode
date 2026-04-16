@@ -18,6 +18,7 @@ from ide.infrastructure.adapters import NetworkSync, Persistence, RevisionLog
 
 
 class ProjectManager:
+    """Tracks project identities and active project selection."""
     def __init__(self) -> None:
         self.projects: dict[str, Project] = {}
         self.active_project: Project | None = None
@@ -41,6 +42,11 @@ class ProjectManager:
 
 
 class ArtifactStore:
+    """Facade for artefact persistence.
+
+    The store keeps a simple in-memory map so presentation flows can exchange
+    artefacts.  Durable storage is represented by the ``Persistence`` boundary.
+    """
     def __init__(self, persistence: Persistence) -> None:
         self.persistence = persistence
         self.artifacts: dict[str, Artifact] = {}
@@ -74,10 +80,11 @@ class SessionManager:
 
 
 class CollabService:
-    """Tracks peer presence and broadcasts local operations.
+    """Architectural collaboration boundary.
 
-    Each peer advertises the artefact they are editing via ``PeerSession``.
-    Local edits are passed to the network boundary as operations.
+    Real distributed editing, CRDT/OT, transport, and conflict resolution are
+    intentionally omitted.  The service keeps presence/operation collaboration
+    points visible for the design.
     """
 
     def __init__(self, network_sync: NetworkSync) -> None:
@@ -89,8 +96,7 @@ class CollabService:
         self.crdt_document: str = ""
 
     def submit_op(self, operation: Operation) -> None:
-        # The outline implementation uses whole-document replacement at the CRDT boundary.
-        self.crdt_document = operation.text
+        # TODO: future implementation would transform/broadcast operations.
         self.broadcast(operation)
 
     def broadcast(self, operation: Operation) -> None:
@@ -115,7 +121,7 @@ class CollabService:
 
 
 class CommentService:
-    """Stores and retrieves simple notes on artefacts."""
+    """Skeletal artefact-note service."""
 
     def __init__(self) -> None:
         self._comments: dict[str, list[Comment]] = {}
@@ -146,7 +152,12 @@ class CommentService:
 
 
 class VersionService:
-    """Revision checkpoint boundary for future explicit version-history UI."""
+    """Autosave/revision boundary.
+
+    A production implementation would write revision records through
+    ``RevisionLog``.  The outline returns placeholder revisions without building
+    a rich history feature.
+    """
 
     def __init__(self, revision_log: RevisionLog) -> None:
         self._log = revision_log
@@ -163,17 +174,16 @@ class VersionService:
             author=author,
             message=message,
         )
-        self._log.record(revision)
         return revision
 
     def autosave(self, artifact: Artifact, author: str) -> Revision:
-        return self.checkpoint(artifact, author, message="Autosave")
+        return self.checkpoint(artifact, author, message="Autosave boundary")
 
     def get_history(self, artifact_id: str) -> list[Revision]:
-        return self._log.get_history(artifact_id)
+        return []
 
     def all_revisions(self) -> list[Revision]:
-        return self._log.all_revisions()
+        return []
 
     def replace_all(self, revisions: list[Revision]) -> None:
-        self._log.replace_all(revisions)
+        return None

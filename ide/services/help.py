@@ -13,16 +13,16 @@ class HelpService:
             "- Project selector and project explorer\n"
             "- Code editor with syntax highlighting\n"
             "- Editable architecture and design artefacts\n"
-            "- Basic run, test, static analysis, and VCS entry points\n"
-            "- Collaboration, notes, and traceability panels as service boundaries\n\n"
-            "Several standard IDE features are intentionally skeletal, including "
-            "debugging, completion, dynamic analysis, and build automation."
+            "- Run, test, debug, analysis, VCS, and build service boundaries\n"
+            "- Collaboration, notes, and traceability panels as architectural seams\n\n"
+            "The implementation is deliberately skeletal: most features preserve "
+            "interfaces and interactions but omit real algorithms/tool execution."
         )
 
     def about(self) -> str:
         return (
             "Architecture Driven Collaborative IDE\n\n"
-            "Outline implementation for collaborative architecture-driven "
-            "software development. The code emphasises architectural structure "
-            "and replaceable service boundaries over complete production behaviour."
+            "Architecture-first outline implementation for collaborative "
+            "architecture-driven software development. The code emphasises "
+            "subsystem structure and replaceable service boundaries."
         )

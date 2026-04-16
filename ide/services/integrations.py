@@ -1,29 +1,24 @@
-"""External build, debug, version-control, and run integrations."""
+"""External tool integration boundaries.
+
+This outline implementation keeps the service APIs for running files, building,
+debugging, and version control, but intentionally avoids invoking subprocesses
+or driving real debuggers.  The classes return typed placeholder results so the
+presentation layer can demonstrate interactions without claiming production
+tool integration.
+"""
 
 from __future__ import annotations
 
-import bdb
-import contextlib
-import io
-import os
-import queue
-import subprocess
-import sys
-import tempfile
-import threading
-import traceback
 from pathlib import Path
 
-from ide.domain.models import DebugFrameSnapshot, DebugSnapshot, DebugStatus, Project, ToolExecutionResult
-
-_DEFAULT_RUN_TIMEOUT = 30  # seconds
+from ide.domain.models import DebugSnapshot, DebugStatus, Project, ToolExecutionResult
 
 
 class RunService:
-    """Executes supported source files in subprocesses and captures output.
+    """Boundary for interpreter/compiler execution.
 
-    stdout and stderr are both captured and returned in the result so the
-    IDE shell can display them in the Output panel.
+    Future adapters may call Python, Java, or other toolchains.  The coursework
+    skeleton returns an explicit placeholder result instead.
     """
 
     def run_file(
@@ -31,326 +26,76 @@ class RunService:
         path: Path,
         *,
         cwd: Path | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = 30,
         extra_args: list[str] | None = None,
     ) -> ToolExecutionResult:
-        command_args = [sys.executable, str(path)] + (extra_args or [])
-        working_dir = str(cwd or path.parent)
-        try:
-            process_result = subprocess.run(
-                command_args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=working_dir,
-            )
-            output = process_result.stdout
-            if process_result.stderr:
-                output += ("\n" if output else "") + "[stderr]\n" + process_result.stderr
-            if not output.strip():
-                output = "(no output)"
-            return ToolExecutionResult(
-                success=process_result.returncode == 0,
-                command=" ".join(command_args),
-                output=output,
-                exit_code=process_result.returncode,
-            )
-        except subprocess.TimeoutExpired:
-            return ToolExecutionResult(
-                success=False,
-                command=" ".join(command_args),
-                output=f"Process timed out after {timeout} second(s).",
-                exit_code=-1,
-            )
-        except FileNotFoundError:
-            return ToolExecutionResult(
-                success=False,
-                command=" ".join(command_args),
-                output=f"Python interpreter not found: {sys.executable}",
-                exit_code=-1,
-            )
-        except Exception as exc:
-            return ToolExecutionResult(
-                success=False,
-                command=" ".join(command_args),
-                output=f"Failed to start process: {exc}",
-                exit_code=-1,
-            )
+        return ToolExecutionResult(
+            success=True,
+            command=f"run {path.name}",
+            output="RunService boundary only: interpreter execution is not implemented.",
+        )
 
     def run_java_file(
         self,
         path: Path,
         *,
         cwd: Path | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = 30,
     ) -> ToolExecutionResult:
-        """Compile and run a Java file using ``javac`` and ``java`` if available."""
-        source = path.read_text(encoding="utf-8", errors="replace")
-        package = self._java_package(source)
-        class_name = f"{package}.{path.stem}" if package else path.stem
-        working_dir = str(cwd or path.parent)
-        with tempfile.TemporaryDirectory(prefix="bscode-java-") as build_dir:
-            compile_cmd = ["javac", "-d", build_dir, str(path)]
-            run_cmd = ["java", "-cp", build_dir, class_name]
-            try:
-                compile_proc = subprocess.run(
-                    compile_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    cwd=working_dir,
-                )
-                if compile_proc.returncode != 0:
-                    return ToolExecutionResult(
-                        success=False,
-                        command=" ".join(compile_cmd),
-                        output=self._combined_output(compile_proc.stdout, compile_proc.stderr)
-                        or "Java compilation failed.",
-                        exit_code=compile_proc.returncode,
-                    )
-                run_proc = subprocess.run(
-                    run_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    cwd=working_dir,
-                )
-                return ToolExecutionResult(
-                    success=run_proc.returncode == 0,
-                    command=" ".join(compile_cmd) + " && " + " ".join(run_cmd),
-                    output=self._combined_output(run_proc.stdout, run_proc.stderr) or "(no output)",
-                    exit_code=run_proc.returncode,
-                )
-            except FileNotFoundError as exc:
-                tool = exc.filename or "javac/java"
-                return ToolExecutionResult(
-                    success=False,
-                    command=" ".join(compile_cmd) + " && " + " ".join(run_cmd),
-                    output=f"Java tool not found: {tool}. Install a JDK to run Java files.",
-                    exit_code=-1,
-                )
-            except subprocess.TimeoutExpired:
-                return ToolExecutionResult(
-                    success=False,
-                    command=" ".join(compile_cmd) + " && " + " ".join(run_cmd),
-                    output=f"Java process timed out after {timeout} second(s).",
-                    exit_code=-1,
-                )
-
-    @staticmethod
-    def _java_package(source: str) -> str:
-        for line in source.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("package ") and stripped.endswith(";"):
-                return stripped.removeprefix("package ").removesuffix(";").strip()
-        return ""
-
-    @staticmethod
-    def _combined_output(stdout: str, stderr: str) -> str:
-        output = stdout
-        if stderr:
-            output += ("\n" if output else "") + "[stderr]\n" + stderr
-        return output.strip()
+        return ToolExecutionResult(
+            success=True,
+            command=f"run-java {path.name}",
+            output="Java compile/run boundary only: javac/java integration is not implemented.",
+        )
 
     def run_module(
         self,
         module: str,
         *,
         cwd: Path,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = 30,
     ) -> ToolExecutionResult:
-        """Run ``python -m <module>`` inside *cwd*."""
-        command_args = [sys.executable, "-m", module]
-        try:
-            process_result = subprocess.run(
-                command_args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=str(cwd),
-            )
-            output = (
-                process_result.stdout
-                + ("\n[stderr]\n" + process_result.stderr if process_result.stderr else "")
-            ).strip()
-            return ToolExecutionResult(
-                success=process_result.returncode == 0,
-                command=" ".join(command_args),
-                output=output or "(no output)",
-                exit_code=process_result.returncode,
-            )
-        except subprocess.TimeoutExpired:
-            return ToolExecutionResult(
-                success=False,
-                command=" ".join(command_args),
-                output=f"Process timed out after {timeout} second(s).",
-                exit_code=-1,
-            )
-        except Exception as exc:
-            return ToolExecutionResult(
-                success=False,
-                command=" ".join(command_args),
-                output=str(exc),
-                exit_code=-1,
-            )
+        return ToolExecutionResult(
+            success=True,
+            command=f"python -m {module}",
+            output="Module execution boundary only: subprocess execution is not implemented.",
+        )
+
+    @staticmethod
+    def _java_package(source: str) -> str:
+        """Structural hook retained for a future Java adapter."""
+        return ""
 
 
 class BuildService:
-    """Build-system boundary used by the prototype shell."""
+    """Build-system boundary for Maven/Gradle/Make/etc. integrations."""
 
     def run_build(self, project: Project) -> ToolExecutionResult:
         return ToolExecutionResult(
             success=True,
-            command="python -m compileall <project>",
-            output=f"Build service outline validated build configuration for {project.name}.",
+            command="build <project>",
+            output=f"BuildService boundary only for {project.name}; build automation is not implemented.",
         )
 
 
-class _PythonDebugger(bdb.Bdb):
-    """Small ``bdb`` adapter that emits UI-friendly debugger snapshots."""
+class _PythonDebugger:
+    """Placeholder adapter documenting where a Python debugger would live."""
 
-    def __init__(
-        self,
-        path: Path,
-        breakpoints: set[int],
-        commands: "queue.Queue[str]",
-        events: "queue.Queue[DebugSnapshot]",
-        cwd: Path,
-    ) -> None:
-        super().__init__()
-        self.path = path.resolve()
+    def __init__(self, path: Path, breakpoints: set[int]) -> None:
+        self.path = path
         self.breakpoints = breakpoints
-        self.commands = commands
-        self.events = events
-        self.cwd = cwd
-        self._output = io.StringIO()
-
-    def run_script(self) -> None:
-        for line in self.breakpoints:
-            self.set_break(str(self.path), line)
-        self.set_step()
-
-        old_cwd = Path.cwd()
-        globals_dict = {
-            "__name__": "__main__",
-            "__file__": str(self.path),
-            "__package__": None,
-        }
-        try:
-            os.chdir(self.cwd)
-            source = self.path.read_text(encoding="utf-8", errors="replace")
-            code = compile(source, str(self.path), "exec")
-            with contextlib.redirect_stdout(self._output), contextlib.redirect_stderr(self._output):
-                self.run(code, globals_dict, globals_dict)
-            self.events.put(
-                DebugSnapshot(
-                    status=DebugStatus.FINISHED,
-                    output=self._output.getvalue(),
-                    message="Debug session finished.",
-                )
-            )
-        except bdb.BdbQuit:
-            self.events.put(
-                DebugSnapshot(
-                    status=DebugStatus.STOPPED,
-                    output=self._output.getvalue(),
-                    message="Debug session stopped.",
-                )
-            )
-        except Exception:
-            self.events.put(
-                DebugSnapshot(
-                    status=DebugStatus.ERROR,
-                    output=self._output.getvalue(),
-                    message=traceback.format_exc(),
-                )
-            )
-        finally:
-            os.chdir(old_cwd)
-
-    def user_line(self, frame) -> None:
-        if Path(frame.f_code.co_filename).resolve() != self.path:
-            return
-        if self.breakpoints and frame.f_lineno not in self.breakpoints:
-            self.set_continue()
-            return
-        self.events.put(self._snapshot(frame, DebugStatus.PAUSED, "Paused in debugger."))
-        command = self.commands.get()
-        if command == "step":
-            self.set_step()
-        elif command == "continue":
-            self.set_continue()
-        elif command == "stop":
-            self.set_quit()
-        else:
-            self.set_step()
-
-    def user_exception(self, frame, exc_info) -> None:
-        exc_type = exc_info[0]
-        exc_value = exc_info[1]
-        self.events.put(
-            self._snapshot(
-                frame,
-                DebugStatus.PAUSED,
-                f"Exception: {exc_type.__name__}: {exc_value}",
-            )
-        )
-        command = self.commands.get()
-        if command == "continue":
-            self.set_continue()
-        elif command == "stop":
-            self.set_quit()
-        else:
-            self.set_step()
-
-    def _snapshot(self, frame, status: DebugStatus, message: str) -> DebugSnapshot:
-        stack: list[DebugFrameSnapshot] = []
-        current = frame
-        while current is not None:
-            stack.append(
-                DebugFrameSnapshot(
-                    file=current.f_code.co_filename,
-                    line=current.f_lineno,
-                    function=current.f_code.co_name,
-                )
-            )
-            current = current.f_back
-        variables = {
-            name: self._safe_repr(value)
-            for name, value in frame.f_locals.items()
-            if not name.startswith("__")
-        }
-        return DebugSnapshot(
-            status=status,
-            file=frame.f_code.co_filename,
-            line=frame.f_lineno,
-            function=frame.f_code.co_name,
-            stack=stack,
-            variables=variables,
-            output=self._output.getvalue(),
-            message=message,
-        )
-
-    @staticmethod
-    def _safe_repr(value: object) -> str:
-        try:
-            text = repr(value)
-        except Exception:
-            text = "<unrepresentable>"
-        return text if len(text) <= 160 else text[:157] + "..."
 
 
 class DebugService:
-    """Python-only debugger service boundary backed by ``bdb``."""
+    """Python debugger service boundary with skeletal state transitions."""
 
     def __init__(self) -> None:
-        self._commands: queue.Queue[str] | None = None
-        self._events: queue.Queue[DebugSnapshot] | None = None
-        self._thread: threading.Thread | None = None
+        self._active = False
         self._last_snapshot = DebugSnapshot(
             status=DebugStatus.IDLE,
-            message="Debugger idle.",
+            message="Debugger idle; runtime control is not implemented.",
         )
+        self._pending_events: list[DebugSnapshot] = []
 
     def start_debug_session(
         self,
@@ -358,148 +103,115 @@ class DebugService:
         entrypoint: Path,
         breakpoints: set[int] | None = None,
     ) -> ToolExecutionResult:
-        if self.is_active():
-            return ToolExecutionResult(
-                success=False,
-                command=f"debug {entrypoint}",
-                output="A debug session is already active.",
-                exit_code=1,
-            )
         if entrypoint.suffix.lower() != ".py":
             self._last_snapshot = DebugSnapshot(
                 status=DebugStatus.UNSUPPORTED,
-                message="Debugger supports Python files only.",
+                file=str(entrypoint),
+                message="Debugger boundary supports Python only; Java debugging is not implemented.",
             )
             return ToolExecutionResult(
                 success=False,
-                command=f"debug {entrypoint}",
+                command=f"debug {entrypoint.name}",
                 output=self._last_snapshot.message,
                 exit_code=1,
             )
-        self._commands = queue.Queue()
-        self._events = queue.Queue()
-        debugger = _PythonDebugger(
-            path=entrypoint,
-            breakpoints=breakpoints or set(),
-            commands=self._commands,
-            events=self._events,
-            cwd=project.root_path,
-        )
-        self._thread = threading.Thread(target=debugger.run_script, daemon=True)
-        self._thread.start()
+
+        self._active = True
+        _PythonDebugger(entrypoint, breakpoints or set())
         self._last_snapshot = DebugSnapshot(
-            status=DebugStatus.RUNNING,
+            status=DebugStatus.PAUSED,
             file=str(entrypoint),
-            message=f"Debug session started for {entrypoint.name}.",
+            line=next(iter(sorted(breakpoints or {1}))),
+            function="<outline>",
+            variables={},
+            message="DebugService boundary started; execution is not actually running.",
         )
+        self._pending_events.append(self._last_snapshot)
         return ToolExecutionResult(
             success=True,
-            command=f"debug {entrypoint}",
+            command=f"debug {entrypoint.name}",
             output=self._last_snapshot.message,
         )
 
     def step(self) -> None:
-        self._send("step")
+        self._last_snapshot = DebugSnapshot(
+            status=DebugStatus.PAUSED,
+            file=self._last_snapshot.file,
+            line=max(1, self._last_snapshot.line + 1),
+            function="<outline>",
+            message="Step requested at debugger boundary; no program state changed.",
+        )
+        self._pending_events.append(self._last_snapshot)
 
     def continue_execution(self) -> None:
-        self._send("continue")
+        self._active = False
+        self._last_snapshot = DebugSnapshot(
+            status=DebugStatus.FINISHED,
+            file=self._last_snapshot.file,
+            message="Continue requested; outline debug session marked finished.",
+        )
+        self._pending_events.append(self._last_snapshot)
 
     def stop(self) -> None:
-        self._send("stop")
+        self._active = False
+        self._last_snapshot = DebugSnapshot(
+            status=DebugStatus.STOPPED,
+            file=self._last_snapshot.file,
+            message="Outline debug session stopped.",
+        )
+        self._pending_events.append(self._last_snapshot)
 
     def poll_events(self) -> list[DebugSnapshot]:
-        if self._events is None:
-            return []
-        events: list[DebugSnapshot] = []
-        while True:
-            try:
-                event = self._events.get_nowait()
-            except queue.Empty:
-                break
-            self._last_snapshot = event
-            events.append(event)
-        if events and events[-1].status in {
-            DebugStatus.FINISHED,
-            DebugStatus.STOPPED,
-            DebugStatus.ERROR,
-        }:
-            self._thread = None
-            self._commands = None
+        events = list(self._pending_events)
+        self._pending_events.clear()
         return events
 
     def is_active(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        return self._active
 
     @property
     def last_snapshot(self) -> DebugSnapshot:
         return self._last_snapshot
 
-    def _send(self, command: str) -> None:
-        if self._commands is not None:
-            self._commands.put(command)
-
 
 class VCSService:
-    """Thin Git adapter used by the IDE shell."""
+    """Version-control service boundary.
+
+    Real Git commands are intentionally not executed in the outline
+    implementation.  Each method returns a typed placeholder result.
+    """
 
     def status(self, project: Project) -> ToolExecutionResult:
-        return self._run_git_command(project, ["status", "--short", "--branch"])
+        return self._placeholder(project, "git status")
 
     def diff(self, project: Project) -> ToolExecutionResult:
-        return self._run_git_command(project, ["diff", "--"])
+        return self._placeholder(project, "git diff")
 
     def log(self, project: Project, limit: int = 20) -> ToolExecutionResult:
-        return self._run_git_command(project, ["log", f"-{limit}", "--oneline", "--decorate"])
+        return self._placeholder(project, f"git log -{limit}")
 
     def branches(self, project: Project) -> ToolExecutionResult:
-        return self._run_git_command(project, ["branch", "--all"])
+        return self._placeholder(project, "git branch")
 
     def add(self, project: Project, pathspec: str = ".") -> ToolExecutionResult:
-        return self._run_git_command(project, ["add", pathspec])
+        return self._placeholder(project, f"git add {pathspec}")
 
     def commit(self, project: Project, message: str) -> ToolExecutionResult:
-        return self._run_git_command(project, ["commit", "-am", message])
+        return self._placeholder(project, f"git commit -m {message!r}")
 
     def pull(self, project: Project) -> ToolExecutionResult:
-        return self._run_git_command(project, ["pull", "--ff-only"])
+        return self._placeholder(project, "git pull")
 
     def push(self, project: Project) -> ToolExecutionResult:
-        return self._run_git_command(project, ["push"])
+        return self._placeholder(project, "git push")
 
     def merge(self, project: Project, branch: str) -> ToolExecutionResult:
-        return self._run_git_command(project, ["merge", branch])
+        return self._placeholder(project, f"git merge {branch}")
 
-    def _run_git_command(self, project: Project, args: list[str]) -> ToolExecutionResult:
-        command_args = ["git", *args]
-        try:
-            process_result = subprocess.run(
-                command_args,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                cwd=str(project.root_path),
-            )
-            output = RunService._combined_output(
-                process_result.stdout,
-                process_result.stderr,
-            ) or "(no output)"
-            return ToolExecutionResult(
-                success=process_result.returncode == 0,
-                command=" ".join(command_args),
-                output=output,
-                exit_code=process_result.returncode,
-            )
-        except FileNotFoundError:
-            return ToolExecutionResult(
-                success=False,
-                command=" ".join(command_args),
-                output="Git executable not found.",
-                exit_code=-1,
-            )
-        except subprocess.TimeoutExpired:
-            return ToolExecutionResult(
-                success=False,
-                command=" ".join(command_args),
-                output="Git command timed out after 30 seconds.",
-                exit_code=-1,
-            )
+    @staticmethod
+    def _placeholder(project: Project, command: str) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            success=True,
+            command=command,
+            output=f"VCSService boundary only for {project.name}; command not executed.",
+        )

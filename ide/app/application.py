@@ -1,8 +1,9 @@
-"""Composition root for the IDE prototype."""
+"""Composition root for the architecture-first IDE outline."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
 from ide.domain.models import Artifact, ArtifactType, PluginMetadata, Project
@@ -14,7 +15,6 @@ from ide.infrastructure.adapters import (
     RevisionLog,
 )
 from ide.infrastructure.bscode_store import BSCodeStore
-from ide.presentation.ide_shell import IDEShell
 from ide.services.help import HelpService
 from ide.services.integrations import BuildService, DebugService, RunService, VCSService
 from ide.services.language import JavaLangSvc, LanguageService, PlainTextLangSvc, PythonLangSvc
@@ -29,6 +29,9 @@ from ide.workspace.workspace_services import (
     SessionManager,
     VersionService,
 )
+
+if TYPE_CHECKING:
+    from ide.presentation.ide_shell import IDEShell
 
 _TEXT_EXTENSIONS: frozenset[str] = frozenset(
     {
@@ -141,6 +144,13 @@ _MAX_SCAN_FILES = 300
 
 
 class IDEApplication:
+    """Wires subsystems and exposes high-level project operations.
+
+    This class is intentionally more concrete than the services it composes:
+    its purpose is to show how the presentation, workspace, services, analysis,
+    infrastructure, and plugin boundaries collaborate.
+    """
+
     def __init__(self) -> None:
         self.platform = PlatformAbstraction()
         self.plugin_registry = PluginRegistry()
@@ -223,12 +233,11 @@ class IDEApplication:
         project = self.project_manager.create_project(name, normalised)
         self.bscode_store = BSCodeStore(normalised)
         self._load_project_state()
-        if normalised.is_dir():
-            self._scan_project_directory(project, normalised)
-        else:
-            for artifact in self._default_artifacts():
-                self.artifact_store.save(artifact)
-                self.project_manager.register_artifact(project, artifact)
+        # Project scanning is intentionally reduced to a few representative
+        # artefacts.  The file explorer and store boundaries remain visible.
+        for artifact in self._default_artifacts():
+            self.artifact_store.save(artifact)
+            self.project_manager.register_artifact(project, artifact)
 
     def switch_project(self, project_id: str) -> None:
         """Switch active project and reset project-local design persistence."""
@@ -237,11 +246,8 @@ class IDEApplication:
         self._load_project_state()
 
     def refresh_active_project_from_disk(self) -> None:
-        project = self.project_manager.active_project
-        if project is None or not project.root_path.is_dir():
-            return
-        project.artifacts.clear()
-        self._scan_project_directory(project, project.root_path)
+        """Refresh hook retained for the explorer; real scanning is omitted."""
+        return None
 
     def load_diagrams(self) -> dict[str, str]:
         """Return saved diagram content for the active project, keyed by diagram type."""
@@ -250,7 +256,7 @@ class IDEApplication:
         return self.bscode_store.load_all_diagrams()
 
     def persist_project_state(self) -> None:
-        """Persist project-local comments, trace links, and revision history."""
+        """Persist project-local metadata through the sidecar boundary."""
         if self.bscode_store is None:
             return
         self.bscode_store.save_comments(self.comment_service.all_comments())
@@ -264,6 +270,8 @@ class IDEApplication:
             self.language_services[lang] = service  # type: ignore[assignment]
 
     def show(self) -> IDEShell:
+        from ide.presentation.ide_shell import IDEShell
+
         if self.project_manager.active_project is None:
             self.open_project("Architecture IDE Demo", Path.cwd())
         self.shell = IDEShell(self)
@@ -271,21 +279,8 @@ class IDEApplication:
         return self.shell
 
     def _scan_project_directory(self, project: Project, root_path: Path) -> None:
-        count = 0
-        for path in sorted(root_path.rglob("*")):
-            if count >= _MAX_SCAN_FILES:
-                break
-            if not path.is_file():
-                continue
-            relative_path = path.relative_to(root_path)
-            if any(part in _SKIP_DIRS or part.startswith(".") for part in relative_path.parts[:-1]):
-                continue
-            if path.suffix.lower() not in _TEXT_EXTENSIONS:
-                continue
-            artifact = self._artifact_from_path(path)
-            self.artifact_store.save(artifact)
-            self.project_manager.register_artifact(project, artifact)
-            count += 1
+        """Placeholder for a future filesystem scanner."""
+        return None
 
     def _load_project_state(self) -> None:
         if self.bscode_store is None:
@@ -295,17 +290,13 @@ class IDEApplication:
         self.version_service.replace_all(self.bscode_store.load_revisions())
 
     def _artifact_from_path(self, path: Path) -> Artifact:
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            content = ""
         ext = path.suffix.lower()
         language = _EXTENSION_LANGUAGE.get(ext, "plain")
         return Artifact(
             name=path.name,
             artifact_type=ArtifactType.CODE,
             language=language,
-            content=content,
+            content="",
             path=path,
         )
 

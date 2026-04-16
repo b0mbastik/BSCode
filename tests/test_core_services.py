@@ -1,352 +1,161 @@
 from __future__ import annotations
 
-import tempfile
-import time
 import unittest
 from pathlib import Path
 
 from ide.analysis.engine import AnalysisManager, ConformanceChecker, PythonStaticAnalyser, StubDynAnalyser
+from ide.app.application import IDEApplication
 from ide.domain.models import (
     Artifact,
     ArtifactType,
-    Comment,
     CompletionItem,
-    CompletionItemKind,
     DebugStatus,
     Operation,
-    Revision,
+    PluginMetadata,
     TestStatus,
     TraceLink,
 )
-from ide.infrastructure.adapters import InMemoryPersistence, RevisionLog
+from ide.infrastructure.adapters import FilesystemPersistence, NetworkSync, PluginRegistry, RevisionLog
 from ide.infrastructure.bscode_store import BSCodeStore
-from ide.services.integrations import DebugService, RunService
+from ide.services.integrations import BuildService, DebugService, RunService, VCSService
 from ide.services.language import JavaLangSvc, PlainTextLangSvc, PythonLangSvc
 from ide.services.search import SearchService
 from ide.services.testing import TestService
 from ide.workspace.traceability import TraceabilityService
-from ide.workspace.workspace_services import ArtifactStore, ProjectManager, VersionService
+from ide.workspace.workspace_services import ArtifactStore, CollabService, ProjectManager, VersionService
 
 
-class ProjectAndPersistenceTests(unittest.TestCase):
-    def test_project_and_artifact_boundaries(self) -> None:
+class ArchitectureContractTests(unittest.TestCase):
+    def test_application_composition_root_wires_major_subsystems(self) -> None:
+        app = IDEApplication()
+
+        self.assertIsInstance(app.project_manager, ProjectManager)
+        self.assertIsInstance(app.artifact_store, ArtifactStore)
+        self.assertIsInstance(app.analysis_manager, AnalysisManager)
+        self.assertIn("python", app.language_services)
+        self.assertIn("java", app.language_services)
+
+    def test_domain_models_support_cross_layer_contracts(self) -> None:
+        artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE, language="python")
+        operation = Operation(artifact_id=artifact.artifact_id, user_id="local", position=0, text="outline")
+        completion = CompletionItem(label="Placeholder")
+
+        self.assertEqual(operation.artifact_id, artifact.artifact_id)
+        self.assertEqual(completion.insert_text, "Placeholder")
+
+    def test_project_manager_and_artifact_store_show_workspace_flow(self) -> None:
         manager = ProjectManager()
-        project = manager.create_project("Demo", Path("/tmp/demo"))
-        artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE)
-        store = ArtifactStore(InMemoryPersistence())
+        project = manager.create_project("Outline", Path("/tmp/outline"))
+        store = ArtifactStore(FilesystemPersistence())
+        artifact = Artifact(name="design.md", artifact_type=ArtifactType.DESIGN)
 
         manager.register_artifact(project, artifact)
         store.save(artifact)
 
         self.assertEqual(manager.active_project, project)
-        self.assertEqual(store.load(artifact.artifact_id), artifact)
+        self.assertEqual(store.list_for_project(project), [artifact])
 
-    def test_sidecar_state_persists_and_reloads(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            store = BSCodeStore(Path(temporary_directory))
-            store.save_comments([Comment(artifact_id="a1", body="review note")])
-            store.save_trace_links([TraceLink(design_element="Design", code_element="Code")])
-            store.save_revisions([Revision(artifact_id="a1", content="v1")])
+    def test_language_services_preserve_parse_complete_highlight_contract(self) -> None:
+        for service in (PythonLangSvc(), JavaLangSvc(), PlainTextLangSvc()):
+            snapshot = service.parse("class Example: pass", "a1")
+            self.assertIn("language", snapshot.code_metadata)
+            self.assertIsInstance(service.highlight("source"), list)
+            self.assertIsInstance(service.complete("source", 1, 1), list)
 
-            self.assertEqual(store.load_comments()[0].body, "review note")
-            self.assertEqual(store.load_trace_links()[0].code_element, "Code")
-            self.assertEqual(store.load_revisions()[0].content, "v1")
-
-    def test_autosave_revision_boundary_records_history(self) -> None:
-        service = VersionService(RevisionLog())
-        artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE, content="print('v1')\n")
-
-        revision = service.autosave(artifact, author="tester")
-
-        self.assertEqual(revision.message, "Autosave")
-        self.assertEqual(service.get_history(artifact.artifact_id), [revision])
-
-
-class CompletionTests(unittest.TestCase):
-    def test_python_completion_returns_keywords_and_current_file_symbols(self) -> None:
-        service = PythonLangSvc()
-        source = "import os\nclass Tool:\n    pass\n\ndef build():\n    pass\n\nbu"
-
-        completions = service.complete(source, 8, 3)
-        labels = {item.label for item in completions}
-
-        self.assertIn("build", labels)
-        self.assertTrue(any(item.label == "build" and item.kind is CompletionItemKind.FUNCTION for item in completions))
-
-    def test_python_completion_includes_project_symbols(self) -> None:
-        service = PythonLangSvc()
-        project_symbols = [CompletionItem(label="ProjectTool", kind=CompletionItemKind.CLASS)]
-
-        labels = {item.label for item in service.complete("Pro", 1, 4, project_symbols)}
-
-        self.assertIn("ProjectTool", labels)
-
-    def test_java_completion_returns_keywords_methods_and_project_symbols(self) -> None:
-        service = JavaLangSvc()
-        source = "public class Tool { public void build() {} }\n"
-        completions = service.complete(
-            source,
-            1,
-            1,
-            [CompletionItem(label="ProjectClass", kind=CompletionItemKind.CLASS)],
-        )
-        labels = {item.label for item in completions}
-
-        self.assertIn("build", labels)
-        self.assertIn("ProjectClass", labels)
-
-    def test_plain_text_completion_is_empty(self) -> None:
-        self.assertEqual(PlainTextLangSvc().complete("abc", 1, 2), [])
-
-
-class AnalysisAndConformanceTests(unittest.TestCase):
-    def _manager(self) -> AnalysisManager:
-        return AnalysisManager(
-            language_services={"python": PythonLangSvc(), "java": JavaLangSvc()},
+    def test_analysis_manager_preserves_static_and_conformance_boundaries(self) -> None:
+        manager = AnalysisManager(
+            language_services={"python": PythonLangSvc(), "plain": PlainTextLangSvc()},
             static_analyser=PythonStaticAnalyser(),
             conformance_checker=ConformanceChecker(),
             dyn_analyser=StubDynAnalyser(),
         )
+        artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE, language="python")
 
-    def test_python_analysis_reports_syntax_error(self) -> None:
-        artifact = Artifact(
-            name="broken.py",
-            artifact_type=ArtifactType.CODE,
-            language="python",
-            content="def broken(:\n    pass\n",
-        )
+        static_result = manager.run_static_analysis([artifact])
+        conformance_result = manager.run_conformance_check(static_result.snapshot, [TraceLink()])
 
-        result = self._manager().run_static_analysis([artifact])
+        self.assertIsNotNone(static_result.snapshot)
+        self.assertIn("omitted", static_result.summary)
+        self.assertIn("boundary", conformance_result.summary)
 
-        self.assertTrue(any(diagnostic.severity.value == "error" for diagnostic in result.diagnostics))
-
-    def test_python_analysis_reports_duplicate_definitions_and_todos(self) -> None:
-        artifact = Artifact(
-            name="dup.py",
-            artifact_type=ArtifactType.CODE,
-            language="python",
-            content="def run():\n    pass\n\ndef run():\n    # TODO wire\n    pass\n",
-        )
-
-        result = self._manager().run_static_analysis([artifact])
-        messages = [diagnostic.message for diagnostic in result.diagnostics]
-
-        self.assertTrue(any("Duplicate definition 'run'" in message for message in messages))
-        self.assertTrue(any("TODO/FIXME" in message for message in messages))
-
-    def test_python_analysis_reports_unused_import(self) -> None:
-        artifact = Artifact(
-            name="imports.py",
-            artifact_type=ArtifactType.CODE,
-            language="python",
-            content="import os\n\ndef run():\n    return 1\n",
-        )
-
-        result = self._manager().run_static_analysis([artifact])
-
-        self.assertTrue(any("Imported name 'os' is not used" in diagnostic.message for diagnostic in result.diagnostics))
-
-    def test_java_analysis_reports_duplicate_class(self) -> None:
-        artifact = Artifact(
-            name="Tool.java",
-            artifact_type=ArtifactType.CODE,
-            language="java",
-            content="class Tool {}\nclass Tool {}\n",
-        )
-
-        result = self._manager().run_static_analysis([artifact])
-
-        self.assertTrue(any("Duplicate class 'Tool'" in diagnostic.message for diagnostic in result.diagnostics))
-
-    def test_conformance_reports_code_and_design_mismatches(self) -> None:
-        design = Artifact(
-            name="design.md",
-            artifact_type=ArtifactType.DESIGN,
-            content="Tool\nMissingDesignOnly\n",
-        )
-        code = Artifact(
-            name="tool.py",
-            artifact_type=ArtifactType.CODE,
-            language="python",
-            content="class Tool:\n    pass\n\nclass ExtraCodeOnly:\n    pass\n",
-        )
-        manager = self._manager()
-
-        static = manager.run_static_analysis([design, code])
-        conformance = manager.run_conformance_check(static.snapshot)
-        messages = [diagnostic.message for diagnostic in conformance.diagnostics]
-
-        self.assertTrue(any("ExtraCodeOnly" in message for message in messages))
-        self.assertTrue(any("MissingDesignOnly" in message for message in messages))
-
-    def test_conformance_reports_traceability_inconsistency(self) -> None:
-        design = Artifact(name="design.md", artifact_type=ArtifactType.DESIGN, content="Tool\n")
-        code = Artifact(
-            name="tool.py",
-            artifact_type=ArtifactType.CODE,
-            language="python",
-            content="class Tool:\n    pass\n",
-        )
-        manager = self._manager()
-        static = manager.run_static_analysis([design, code])
-
-        conformance = manager.run_conformance_check(
-            static.snapshot,
-            [TraceLink(design_element="MissingDesign", code_element="MissingCode")],
-        )
-        messages = [diagnostic.message for diagnostic in conformance.diagnostics]
-
-        self.assertTrue(any("MissingDesign" in message for message in messages))
-        self.assertTrue(any("MissingCode" in message for message in messages))
-
-    def test_dynamic_analysis_boundary_is_non_diagnostic(self) -> None:
-        project = ProjectManager().create_project("Demo", Path("/tmp/demo"))
-
+    def test_dynamic_analysis_boundary_returns_non_diagnostic_result(self) -> None:
+        project = ProjectManager().create_project("Outline", Path("/tmp/outline"))
         result = StubDynAnalyser().analyse_runtime(project)
 
         self.assertEqual(result.diagnostics, [])
+        self.assertIn("outlined", result.summary)
 
+    def test_tool_services_return_placeholder_result_objects(self) -> None:
+        project = ProjectManager().create_project("Outline", Path("/tmp/outline"))
 
-class DebugServiceTests(unittest.TestCase):
-    def test_debug_service_rejects_non_python_files(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            java_file = root / "Tool.java"
-            java_file.write_text("class Tool {}\n", encoding="utf-8")
-            project = ProjectManager().create_project("Debug", root)
+        self.assertIn("boundary", RunService().run_file(Path("main.py")).output)
+        self.assertIn("boundary", BuildService().run_build(project).output)
+        self.assertIn("boundary", VCSService().status(project).output)
 
-            result = DebugService().start_debug_session(project, java_file, {1})
+    def test_debug_service_preserves_python_only_session_boundary(self) -> None:
+        project = ProjectManager().create_project("Outline", Path("/tmp/outline"))
+        service = DebugService()
 
-            self.assertFalse(result.success)
-            self.assertIn("Python", result.output)
+        start = service.start_debug_session(project, Path("main.py"), {3})
+        events = service.poll_events()
+        service.continue_execution()
+        finished = service.poll_events()
 
-    def test_python_debugger_pauses_at_breakpoint_and_exposes_locals(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            script = root / "debug_me.py"
-            script.write_text("x = 1\ny = x + 1\nprint(y)\n", encoding="utf-8")
-            project = ProjectManager().create_project("Debug", root)
-            service = DebugService()
+        self.assertTrue(start.success)
+        self.assertEqual(events[0].status, DebugStatus.PAUSED)
+        self.assertEqual(finished[-1].status, DebugStatus.FINISHED)
 
-            result = service.start_debug_session(project, script, {2})
-            snapshots = self._wait_for_events(service)
-            service.stop()
-            self._wait_for_events(service)
+    def test_debug_service_rejects_non_python_entrypoints(self) -> None:
+        project = ProjectManager().create_project("Outline", Path("/tmp/outline"))
+        result = DebugService().start_debug_session(project, Path("Main.java"), set())
 
-            self.assertTrue(result.success)
-            paused = next(snapshot for snapshot in snapshots if snapshot.status is DebugStatus.PAUSED)
-            self.assertEqual(paused.line, 2)
-            self.assertEqual(paused.variables.get("x"), "1")
+        self.assertFalse(result.success)
+        self.assertIn("Python", result.output)
 
-    def test_python_debugger_step_and_continue_state_transitions(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            script = root / "debug_me.py"
-            script.write_text("x = 1\ny = x + 1\nprint(y)\n", encoding="utf-8")
-            project = ProjectManager().create_project("Debug", root)
-            service = DebugService()
+    def test_test_and_search_services_are_structural_boundaries(self) -> None:
+        project = ProjectManager().create_project("Outline", Path("/tmp/outline"))
+        test_result = TestService().run_tests(project, [])
+        search_result = SearchService().search("query", [])
 
-            service.start_debug_session(project, script, set())
-            first_pause = self._wait_for_events(service)
-            service.step()
-            second_pause = self._wait_for_events(service)
-            service.continue_execution()
-            final_events = self._wait_for_events(service, wait_for_terminal=True)
+        self.assertEqual(test_result.suites[0].cases[0].status, TestStatus.SKIPPED)
+        self.assertEqual(search_result, [])
 
-            self.assertTrue(any(snapshot.status is DebugStatus.PAUSED for snapshot in first_pause))
-            self.assertTrue(any(snapshot.status is DebugStatus.PAUSED for snapshot in second_pause))
-            self.assertTrue(any(snapshot.status is DebugStatus.FINISHED for snapshot in final_events))
+    def test_metadata_store_keeps_bscode_boundary_without_runtime_state(self) -> None:
+        store = BSCodeStore(Path("/tmp/outline"))
 
-    @staticmethod
-    def _wait_for_events(
-        service: DebugService,
-        *,
-        wait_for_terminal: bool = False,
-    ) -> list:
-        deadline = time.time() + 2
-        events = []
-        while time.time() < deadline:
-            events.extend(service.poll_events())
-            if events:
-                if not wait_for_terminal:
-                    return events
-                if any(event.status in {DebugStatus.FINISHED, DebugStatus.STOPPED, DebugStatus.ERROR} for event in events):
-                    return events
-            time.sleep(0.02)
-        return events
+        self.assertEqual(store.load_all_diagrams(), {})
+        self.assertEqual(store.load_comments(), [])
+        self.assertEqual(store.load_trace_links(), [])
+        self.assertEqual(store.load_revisions(), [])
 
-
-class TestRunnerAndToolingTests(unittest.TestCase):
-    def test_test_runner_fallback_classifies_basic_cases(self) -> None:
-        project = ProjectManager().create_project("Tests", Path("/tmp/tests"))
-        artifact = Artifact(
-            name="test_example.py",
-            artifact_type=ArtifactType.TEST,
-            language="python",
-            content="def test_passes():\n    assert 1\n\ndef test_fails():\n    assert False\n",
-        )
-
-        result = TestService().run_tests(project, [artifact])
-        statuses = {case.name: case.status for case in result.suites[0].cases}
-
-        self.assertEqual(statuses["test_passes"], TestStatus.PASSED)
-        self.assertEqual(statuses["test_fails"], TestStatus.FAILED)
-        self.assertEqual(result.total_failed, 1)
-
-    def test_test_runner_executes_unittest_project_and_captures_output(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            test_file = root / "test_real.py"
-            test_file.write_text(
-                "import unittest\n\n"
-                "class RealTest(unittest.TestCase):\n"
-                "    def test_ok(self):\n"
-                "        self.assertEqual(1, 1)\n",
-                encoding="utf-8",
-            )
-            project = ProjectManager().create_project("Tests", root)
-            artifact = Artifact(
-                name=test_file.name,
-                artifact_type=ArtifactType.TEST,
-                language="python",
-                path=test_file,
-                content=test_file.read_text(encoding="utf-8"),
-            )
-
-            result = TestService().run_tests(project, [artifact])
-
-            self.assertTrue(result.success)
-            self.assertIn("unittest", result.command)
-            self.assertTrue(result.output)
-
-    def test_run_service_extracts_java_package_name(self) -> None:
-        self.assertEqual(RunService._java_package("package edu.demo;\npublic class Main {}\n"), "edu.demo")
-
-    def test_search_service_is_plain_filename_and_content_search(self) -> None:
-        artifact = Artifact(name="tool.py", artifact_type=ArtifactType.CODE, content="class Tool:\n    pass\n")
-
-        results = SearchService().search("tool", [artifact])
-
-        self.assertTrue(any(result.context == "filename match" for result in results))
-        self.assertTrue(any(result.line == 1 for result in results))
-
-
-class WorkspaceBoundaryTests(unittest.TestCase):
-    def test_traceability_service_is_basic_create_delete_store(self) -> None:
-        service = TraceabilityService()
-        link = service.add_link(
-            TraceLink(design_element="Editor", code_element="EditorView", description="realised by")
-        )
-
-        self.assertEqual(service.get_all(), [link])
-        self.assertTrue(service.remove_link(link.link_id))
-        self.assertEqual(service.get_all(), [])
-
-    def test_operation_model_supports_collaboration_boundary(self) -> None:
+    def test_collaboration_and_traceability_boundaries_remain_visible(self) -> None:
+        network = NetworkSync()
+        collab = CollabService(network)
         artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE)
-        operation = Operation(artifact_id=artifact.artifact_id, user_id="u1", position=0, text="abc")
+        operation = Operation(artifact_id=artifact.artifact_id, user_id="u1", position=0, text="x")
 
-        self.assertEqual(operation.text, "abc")
+        collab.submit_op(operation)
+        trace_service = TraceabilityService()
+        link = trace_service.add_link(TraceLink(design_element="Design", code_element="Code"))
+
+        self.assertEqual(network.last_sent_operation, operation)
+        self.assertEqual(trace_service.get_all(), [link])
+
+    def test_revision_and_plugin_boundaries_are_structural(self) -> None:
+        revision_service = VersionService(RevisionLog())
+        artifact = Artifact(name="main.py", artifact_type=ArtifactType.CODE, content="print('outline')")
+        revision = revision_service.autosave(artifact, "tester")
+
+        registry = PluginRegistry()
+        registry.register_language(
+            "python",
+            PythonLangSvc(),
+            PluginMetadata(name="PythonLangSvc", version="outline", extension_point="LanguageService"),
+        )
+
+        self.assertIn("boundary", revision.message)
+        self.assertEqual(revision_service.get_history(artifact.artifact_id), [])
+        self.assertIsInstance(registry.get_language("python"), PythonLangSvc)
 
 
 if __name__ == "__main__":

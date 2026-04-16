@@ -1,44 +1,29 @@
 # Architecture Mapping Table
 
-| Architecture element | Design element | Implementation element | Notes |
+| Architecture element | Design element | Implementation element | Outline status |
 | --- | --- | --- | --- |
-| Presentation | IDEShell | `ide.presentation.ide_shell.IDEShell` | Main PySide6 window, menus, docks, tabs, status bar. |
-| Presentation | EditorView | `ide.presentation.editor_view.EditorView` | Code editor with text buffer, line numbers, clickable breakpoints, syntax highlighting, local operations, and diagnostics rendering. |
-| Presentation | DiagramCanvas | `ide.presentation.widgets.DiagramCanvas` | Text-based architecture/design editing surface with component, layered, deployment, class, and sequence views. |
-| Presentation | CollabUI | `ide.presentation.widgets.CollabUI` | Presence and collaboration event panel. |
-| Workspace | ProjectManager | `ide.workspace.workspace_services.ProjectManager` | Creates and switches active projects. |
-| Workspace | CollabService | `ide.workspace.workspace_services.CollabService` | Accepts edit operations and broadcasts through `NetworkSync`. |
-| Workspace | ArtifactStore | `ide.workspace.workspace_services.ArtifactStore` | Stores code, architecture, design, and test artifacts. |
-| Workspace | SessionManager | `ide.workspace.workspace_services.SessionManager` | Maintains current user/session context. |
-| Workspace | CommentService | `ide.workspace.workspace_services.CommentService` | Maintains in-memory comments and annotations for artifacts. |
-| Workspace | VersionService | `ide.workspace.workspace_services.VersionService` | Creates explicit save checkpoints through `RevisionLog`. |
-| Workspace | TraceabilityService | `ide.workspace.traceability.TraceabilityService` | Maintains design-to-code trace links. |
-| Core IDE Services | LanguageService | `ide.services.language.LanguageService` | Protocol for pluggable language support. |
-| Core IDE Services | PythonLangSvc | `ide.services.language.PythonLangSvc` | Concrete outline language service for Python. |
-| Core IDE Services | JavaLangSvc | `ide.services.language.JavaLangSvc` | Java language service for file recognition, metadata extraction, completion and highlighting. |
-| Core IDE Services | BuildService | `ide.services.integrations.BuildService` | Boundary for project build automation. |
-| Core IDE Services | DebugService | `ide.services.integrations.DebugService` | Runs Python debugger sessions with breakpoints, stepping, stack frames, variables, and output capture. |
-| Core IDE Services | VCSService | `ide.services.integrations.VCSService` | Runs Git status, diff, log, branch, add/stage, commit, pull, push, and merge operations in the active project. |
-| Core IDE Services | RunService | `ide.services.integrations.RunService` | Runs Python files and compiles/runs Java files through local toolchains. |
-| Core IDE Services | TestService | `ide.services.testing.TestService` | Runs real `unittest discover` for on-disk Python projects, with an in-memory fallback for prototype artefacts. |
-| Core IDE Services | SearchService | `ide.services.search.SearchService` | Searches project artifacts and live design diagram text. |
-| Core IDE Services | HelpService | `ide.services.help.HelpService` | Provides structured help topics and contextual help. |
-| Analysis Engine | AnalysisManager | `ide.analysis.engine.AnalysisManager` | Coordinates static, dynamic, and conformance workflows. |
-| Analysis Engine | StaticAnalyser | `ide.analysis.engine.StaticAnalyser` | Abstract extension point for static analysis. |
-| Analysis Engine | ConformanceChecker | `ide.analysis.engine.ConformanceChecker` | Lightweight architecture/design/code consistency check using parsed metadata. |
-| Analysis Engine | DynAnalyser | `ide.analysis.engine.DynAnalyser` | Abstract extension point for runtime/test-time analysis. |
-| Infrastructure | PlatformAbstraction | `ide.infrastructure.adapters.PlatformAbstraction` | OS and filesystem boundary. |
-| Infrastructure | Persistence | `ide.infrastructure.adapters.Persistence` | Storage/versioning boundary. |
-| Infrastructure | NetworkSync | `ide.infrastructure.adapters.NetworkSync` | Collaboration transport boundary. |
-| Infrastructure | PluginRegistry | `ide.infrastructure.adapters.PluginRegistry` | Registers language and analyser extensions. |
-| Infrastructure | BSCodeStore | `ide.infrastructure.bscode_store.BSCodeStore` | Persists project-local design diagrams plus comments, trace links, and revisions under `.bscode/`. |
-| Application | IDEApplication | `ide.app.application.IDEApplication` | Composition root and startup flow. |
+| Application | Composition root | `ide.app.application.IDEApplication` | Wires subsystems and registers skeletal services. |
+| Presentation | Shell/controller | `ide.presentation.ide_shell.IDEShell` | Keeps menus, docks, tabs, panels and action wiring. |
+| Presentation | Editor boundary | `ide.presentation.editor_view.EditorView`, `CodeEditor` | Keeps document/operation/completion/debug hooks; rich editing omitted. |
+| Presentation | Design canvas | `ide.presentation.widgets.DiagramCanvas` | Keeps text-based design artefact concepts. |
+| Presentation | Collaboration panel | `ide.presentation.widgets.CollabUI` | Keeps presence/event UI boundary. |
+| Domain | Shared contracts | `ide.domain.models` | Dataclasses/enums retained as cross-layer contracts. |
+| Workspace | Project management | `ProjectManager` | Active project and registration flow retained. |
+| Workspace | Artefact storage | `ArtifactStore`, `Persistence` | In-memory facade retained; durable storage omitted. |
+| Workspace | Collaboration | `CollabService`, `NetworkSync`, `Operation` | Architectural boundary only; no real networking. |
+| Workspace | Notes/revisions/traceability | `CommentService`, `VersionService`, `TraceabilityService` | Simple structural services only. |
+| Services | Language support | `LanguageService`, `PythonLangSvc`, `JavaLangSvc`, `PlainTextLangSvc` | Interfaces/classes retained; real parsing/highlighting/completion omitted. |
+| Services | Tool integrations | `RunService`, `BuildService`, `DebugService`, `VCSService` | Return placeholder `ToolExecutionResult`/debug snapshots. |
+| Services | Testing/search/help | `TestService`, `SearchService`, `HelpService` | Boundaries retained; only help has static content. |
+| Analysis | Analysis orchestration | `AnalysisManager`, `StaticAnalyser`, `ConformanceChecker`, `DynAnalyser` | Contracts and flow retained; algorithms omitted. |
+| Infrastructure | Sidecar metadata | `BSCodeStore` | `.bscode` boundary retained; persistence omitted. |
+| Infrastructure | Plugin extension | `PluginRegistry`, `ide.extensions.contracts` | Registry/contracts retained; dynamic loading omitted. |
 
 ## Diagram Source Mapping
 
 | Diagram | Source file | Purpose |
 | --- | --- | --- |
-| Logical component view | `docs/report/diagrams/logical_view_component_diagram.mmd` | Shows implemented architecture layers and dependencies. |
-| Structural class view | `docs/report/diagrams/structural_design_class_diagram.mmd` | Shows main classes, protocols, and extension boundaries. |
-| Edit/analyse/collaborate sequence | `docs/report/diagrams/behavioural_sequence_edit_analyse_collaborate.mmd` | Shows the main edit, autosave, collaboration, and analysis flow. |
-| Test/dynamic analysis sequence | `docs/report/diagrams/behavioural_sequence_run_tests_dynamic_analysis.mmd` | Shows test execution and dynamic-analysis hook flow. |
+| Logical component view | `docs/report/diagrams/logical_view_component_diagram.mmd` | Shows subsystem/layer decomposition. |
+| Structural class view | `docs/report/diagrams/structural_design_class_diagram.mmd` | Shows primary classes, protocols and boundaries. |
+| Edit/analyse/collaborate sequence | `docs/report/diagrams/behavioural_sequence_edit_analyse_collaborate.mmd` | Shows intended interaction flow; behaviour is skeletal. |
+| Test/dynamic analysis sequence | `docs/report/diagrams/behavioural_sequence_run_tests_dynamic_analysis.mmd` | Shows test-to-dynamic-analysis boundary; no real diagnostics are produced. |

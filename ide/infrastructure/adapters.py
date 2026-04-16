@@ -46,32 +46,30 @@ class InMemoryPersistence(Persistence):
 
 
 class FilesystemPersistence(Persistence):
-    """Persistence that reads and writes artifacts to real files on disk."""
+    """Filesystem persistence boundary.
+
+    The outline implementation keeps an in-memory cache only.  Real file writes
+    are intentionally omitted so persistence remains a design seam rather than
+    a fully implemented storage layer.
+    """
 
     def __init__(self) -> None:
         self._cache: dict[str, Artifact] = {}
 
     def save_artifact(self, artifact: Artifact) -> None:
         self._cache[artifact.artifact_id] = artifact
-        if artifact.path is not None:
-            try:
-                artifact.path.write_text(artifact.content, encoding="utf-8")
-            except OSError:
-                pass
 
     def load_artifact(self, artifact_id: str) -> Artifact | None:
-        artifact = self._cache.get(artifact_id)
-        if artifact is not None and artifact.path is not None and artifact.path.exists():
-            try:
-                artifact.content = artifact.path.read_text(encoding="utf-8")
-            except OSError:
-                pass
-        return artifact
+        return self._cache.get(artifact_id)
 
 
 
 class RevisionLog:
-    """Keeps a bounded in-memory revision history per artefact."""
+    """Revision-history boundary.
+
+    Only enough in-memory state is retained to show how autosave/checkpoint
+    services collaborate with a log.  Rich revision browsing is out of scope.
+    """
 
     MAX_PER_ARTIFACT = 50
 
@@ -102,9 +100,8 @@ class RevisionLog:
 class NetworkSync:
     """Remote collaboration transport boundary.
 
-    Operations are enqueued locally and flushed synchronously in this outline.
-    A production implementation would flush asynchronously and update
-    ``status`` as acknowledgements arrive.
+    No remote transport is implemented.  The class only records the most recent
+    operation and exposes status-listener hooks used by the presentation layer.
     """
 
     def __init__(self) -> None:
@@ -122,9 +119,8 @@ class NetworkSync:
         self._status_listeners.append(listener)
 
     def send(self, operation: Operation) -> None:
-        self._queue.append(operation)
-        self._set_status(SyncStatus.PENDING)
-        self._flush()
+        self.last_sent_operation = operation
+        self._set_status(SyncStatus.IDLE)
 
     def broadcast(self, operation: Operation) -> None:
         self.send(operation)
@@ -138,9 +134,7 @@ class NetworkSync:
         self._set_status(SyncStatus.IDLE)
 
     def _flush(self) -> None:
-        """Immediately clear the local queue in the outline implementation."""
-        self._set_status(SyncStatus.SYNCING)
-        self.last_sent_operation = self._queue[-1] if self._queue else None
+        """Reserved for a future asynchronous transport adapter."""
         self._queue.clear()
         self._set_status(SyncStatus.IDLE)
 

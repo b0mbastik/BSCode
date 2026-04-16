@@ -35,7 +35,6 @@ from ide.domain.models import (
     ArtifactType,
     Comment,
     CompletionItem,
-    CompletionItemKind,
     Diagnostic,
     DebugSnapshot,
     DebugStatus,
@@ -108,6 +107,13 @@ class _AddTraceLinkDialog(QDialog):
 
 
 class IDEShell(QMainWindow):
+    """Presentation-layer shell coordinating visible subsystem boundaries.
+
+    The window keeps menus, docks, panels, and signal wiring so the architecture
+    is inspectable.  Most actions now delegate to skeletal services that return
+    placeholder results rather than performing full IDE behaviour.
+    """
+
     def __init__(self, application: IDEApplication) -> None:
         super().__init__()
         self.application = application
@@ -135,7 +141,7 @@ class IDEShell(QMainWindow):
 
         self.application.network_sync.add_status_listener(self._on_sync_status_changed)
         self.debug_timer.start(150)
-        self.filesystem_timer.start(2500)
+        # Filesystem watching is represented by the refresh action only.
 
         self.statusBar().showMessage("Desktop IDE shell ready. Press F1 for help.")
         self._refresh_project_selector()
@@ -763,10 +769,7 @@ class IDEShell(QMainWindow):
 
         self.statusBar().showMessage(f"Running {artifact.path.name}...")
         self.output_view.appendPlainText(f"\n{'-' * 60}")
-        if artifact.path.suffix.lower() == ".java":
-            self.output_view.appendPlainText(f"$ javac/java {artifact.path}")
-        else:
-            self.output_view.appendPlainText(f"$ python {artifact.path}")
+        self.output_view.appendPlainText(f"$ run-boundary {artifact.path}")
         self.bottom_tabs.setCurrentWidget(self.output_view)
 
         if artifact.path.suffix.lower() == ".java":
@@ -1068,24 +1071,7 @@ class IDEShell(QMainWindow):
             self.refresh_project_from_disk()
 
     def _filesystem_snapshot(self) -> set[str]:
-        project = self.application.project_manager.active_project
-        if project is None or not project.root_path.is_dir():
-            return set()
-        skip_dirs = {
-            ".bscode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache",
-            "node_modules", ".venv", "venv", "dist", "build",
-        }
-        snapshot: set[str] = set()
-        for path in project.root_path.rglob("*"):
-            try:
-                relative_path = path.relative_to(project.root_path)
-            except ValueError:
-                continue
-            if any(part in skip_dirs or part.startswith(".") for part in relative_path.parts[:-1]):
-                continue
-            if path.is_file():
-                snapshot.add(str(relative_path))
-        return snapshot
+        return set()
 
 
     def _on_tab_changed(self, index: int) -> None:
@@ -1165,32 +1151,7 @@ class IDEShell(QMainWindow):
         )
 
     def _project_completion_symbols(self, active_artifact: Artifact) -> list[CompletionItem]:
-        project = self.application.project_manager.active_project
-        if project is None:
-            return []
-        symbols: list[CompletionItem] = []
-        for artifact in self.application.artifact_store.list_for_project(project):
-            if artifact.artifact_id == active_artifact.artifact_id:
-                continue
-            if artifact.language != active_artifact.language:
-                continue
-            language_service = self.application.language_services.get(artifact.language or "plain")
-            if language_service is None:
-                continue
-            snapshot = language_service.parse(artifact.content, artifact.artifact_id)
-            symbols.extend(
-                CompletionItem(label=name, kind=CompletionItemKind.CLASS, detail=artifact.name)
-                for name in snapshot.code_metadata.get("classes", [])
-            )
-            symbols.extend(
-                CompletionItem(label=name, kind=CompletionItemKind.FUNCTION, detail=artifact.name)
-                for name in snapshot.code_metadata.get("functions", [])
-            )
-            symbols.extend(
-                CompletionItem(label=name, kind=CompletionItemKind.METHOD, detail=artifact.name)
-                for name in snapshot.code_metadata.get("methods", [])
-            )
-        return symbols
+        return []
 
     def _find_editor_tab(self, artifact_id: str) -> EditorView | None:
         for i in range(self.tabs.count()):
@@ -1200,14 +1161,11 @@ class IDEShell(QMainWindow):
         return None
 
     def _handle_editor_operation(self, operation: Operation, artifact: Artifact) -> None:
+        """Receive editor changes and show intended subsystem collaboration."""
         self.application.collab_service.submit_op(operation)
         self.application.artifact_store.save(artifact)
-        session = self.application.session_manager.current_session
-        author = session.display_name if session else "Local User"
-        self.application.version_service.autosave(artifact, author)
-        self.application.persist_project_state()
         self.collab_ui.log_event(f"Local edit: {artifact.name}")
-        self.analysis_timer.start(400)
+        # Autosave, revision creation, and debounced analysis are outline hooks.
 
 
     def _run_static_analysis(self, add_output: bool) -> None:
